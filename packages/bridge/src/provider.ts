@@ -598,7 +598,10 @@ export class CodexAgentProvider implements AgentProvider {
     const initialSummary = (model ? this.summaryModeByModel.get(model) : null) ?? "auto";
     const turnParams = {
       threadId: session.threadId,
-      input: [{ type: "text", text: builtPrompt, text_elements: [] }],
+      input: [
+        { type: "text", text: builtPrompt, text_elements: [] },
+        ...(selection.screenshot ? [{ type: "image", url: selection.screenshot.dataUrl }] : [])
+      ],
       cwd: this.cwd,
       approvalPolicy: "on-request",
       summary: initialSummary as TurnSummaryMode,

@@ -22,6 +22,13 @@ export const buildPrompt = (
     `- Selector: ${selection.selector ?? "Unknown"}`,
     `- Source: ${location}`,
     `- React-owned: ${selection.isReactComponent ? "yes" : "no"}`,
+    `- Screenshot attached: ${selection.screenshot ? "yes" : "no"}`,
+    ...(selection.screenshot
+      ? [
+          `- Screenshot type: ${selection.screenshot.mimeType}`,
+          `- Screenshot size: ${selection.screenshot.width}x${selection.screenshot.height}`
+        ]
+      : []),
     "",
     "Owner stack:",
     selection.stackString,

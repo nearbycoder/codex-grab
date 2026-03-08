@@ -13,6 +13,7 @@ export type {
   CodexReasoningEffortOption,
   CreateElementSelectorOptions,
   GrabElementContext,
+  GrabElementScreenshot,
   GrabStackFrame,
   PlanStep,
   SelectionController,

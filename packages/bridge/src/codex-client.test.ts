@@ -46,6 +46,29 @@ describe("CodexAppServerClient startup smoke", () => {
     await expect(client.start()).rejects.toThrow(/Codex CLI was not found|spawn/i);
   });
 
+  it("fails cleanly when launching app-server reports ENOENT", async () => {
+    const child = new FakeChild();
+    const client = new CodexAppServerClient({
+      cwd: "/repo",
+      versionReader: async () => "0.108.0",
+      appServerLauncher: () => {
+        queueMicrotask(() => {
+          child.emit(
+            "error",
+            Object.assign(new Error("spawn codex ENOENT"), { code: "ENOENT" }),
+          );
+        });
+        return child;
+      },
+      socketConnector: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new Error("Timed out waiting for codex app-server WebSocket.");
+      }
+    });
+
+    await expect(client.start()).rejects.toThrow(/Codex CLI was not found on PATH/i);
+  });
+
   it("rejects unsupported Codex versions before launching the app server", async () => {
     const launcher = vi.fn();
     const client = new CodexAppServerClient({

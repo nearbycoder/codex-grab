@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   createElementSelector,
+  getElementContext,
   serializeElementContext,
   type ApprovalDecision,
   type ApprovalRequest,
@@ -23,30 +24,59 @@ import {
   type SelectionController,
   type SerializedGrabElementContext
 } from "@codex-grab/core";
+import { createCodexGrabStore, HistoryStorageUnavailableError } from "./history-store.js";
+import type {
+  GrabTurnHistoryApprovalRecord,
+  GrabTurnHistoryRecord,
+  GrabTurnHistoryStatus,
+  GrabTurnHistoryStorageStatus
+} from "./history-types.js";
+import type {
+  GrabPersistedWidgetRecord,
+  GrabWidgetAnchorMode,
+  GrabWidgetConnectionStatus,
+  GrabWidgetTurnStatus
+} from "./widget-types.js";
+import { captureElementScreenshot } from "./screenshot.js";
 
-type ConnectionStatus = "connecting" | "connected" | "error";
-type TurnStatus = "idle" | "running" | "completed" | "failed" | "cancelled";
+type ConnectionStatus = GrabWidgetConnectionStatus;
+type TurnStatus = GrabWidgetTurnStatus;
 
 export interface CodexGrabProviderProps extends PropsWithChildren {
   bridgeUrl: string;
   token: string;
   enabled?: boolean;
+  viewId?: string;
+  persistWidgets?: boolean;
 }
 
 export interface GrabWidget {
   id: string;
+  viewId: string;
+  createdAt: number;
+  updatedAt: number;
   anchor: {
     top: number;
     left: number;
   };
-  selection: GrabElementContext;
+  anchorMode: GrabWidgetAnchorMode;
+  selection: GrabElementContext | null;
   serializedSelection: SerializedGrabElementContext;
+  isAttached: boolean;
+  shouldResumeOnConnect: boolean;
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
   prompt: string;
   turnStatus: TurnStatus;
   activeThreadId: string | null;
   activeTurnId: string | null;
+  bridgeSessionId: string | null;
+  bridgeCwd: string | null;
+  bridgeVersion: string | null;
+  codexVersion: string | null;
+  historyEntryId: string | null;
+  submittedAt: number | null;
+  completedAt: number | null;
   reasoningSummary: string;
   commandOutput: string;
   diff: string;
@@ -57,6 +87,9 @@ export interface GrabWidget {
   events: BridgeEvent[];
   collapsed: boolean;
   isSubmitting: boolean;
+  includeScreenshot: boolean;
+  isCapturingScreenshot: boolean;
+  screenshotError: string | null;
   availableModels: CodexModelOption[];
   selectedModel: string | null;
   selectedEffort: CodexReasoningEffort | null;
@@ -65,6 +98,11 @@ export interface GrabWidget {
 export interface CodexGrabState {
   widgets: GrabWidget[];
   unsupportedMessage: string | null;
+  history: GrabTurnHistoryRecord[];
+  historyStatus: GrabTurnHistoryStorageStatus;
+  historyError: string | null;
+  isHistoryOpen: boolean;
+  currentViewId: string;
 }
 
 export interface CodexGrabActions {
@@ -75,13 +113,19 @@ export interface CodexGrabActions {
   updatePrompt(widgetId: string, prompt: string): void;
   updateModel(widgetId: string, model: string): void;
   updateEffort(widgetId: string, effort: CodexReasoningEffort): void;
-  submitPrompt(widgetId: string): void;
+  toggleScreenshot(widgetId: string): Promise<void>;
+  refreshScreenshot(widgetId: string): Promise<void>;
+  submitPrompt(widgetId: string): Promise<void>;
   approve(widgetId: string): void;
   decline(widgetId: string): void;
   interrupt(widgetId: string): void;
   toggleWidget(widgetId: string): void;
   setWidgetCollapsed(widgetId: string, collapsed: boolean): void;
   collapseAllWidgets(): void;
+  clearHistory(): Promise<void>;
+  clearPersistedWidgets(): Promise<void>;
+  openHistory(): void;
+  closeHistory(): void;
 }
 
 export interface CodexGrabContextValue extends CodexGrabState, CodexGrabActions {
@@ -91,6 +135,8 @@ export interface CodexGrabContextValue extends CodexGrabState, CodexGrabActions 
 const CodexGrabContext = createContext<CodexGrabContextValue | null>(null);
 const MAX_EVENTS = 200;
 const MODEL_STORAGE_KEY = "codex-grab-selected-model";
+const HISTORY_PENDING_PREFIX = "pending";
+const RESUME_FAILURE_MESSAGE = "Previous running turn could not be resumed after refresh.";
 
 const getModelForWidget = (
   widget: Pick<GrabWidget, "availableModels" | "selectedModel">,
@@ -143,6 +189,17 @@ const writeStoredModelPreference = (model: string | null) => {
   }
 };
 
+const getCurrentViewId = (): string => {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
 const getWidgetAnchor = (element: Element) => {
   const rect = element.getBoundingClientRect();
   const inset = 16;
@@ -169,21 +226,35 @@ const getWidgetAnchor = (element: Element) => {
 
 const createWidgetState = (
   selection: GrabElementContext,
+  viewId: string,
   preferredModel: string | null,
 ): GrabWidget => ({
   id:
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  viewId,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
   anchor: getWidgetAnchor(selection.element),
+  anchorMode: "element",
   selection,
   serializedSelection: serializeElementContext(selection),
+  isAttached: true,
+  shouldResumeOnConnect: false,
   connectionStatus: "connecting",
   connectionError: null,
   prompt: "",
   turnStatus: "idle",
   activeThreadId: null,
   activeTurnId: null,
+  bridgeSessionId: null,
+  bridgeCwd: null,
+  bridgeVersion: null,
+  codexVersion: null,
+  historyEntryId: null,
+  submittedAt: null,
+  completedAt: null,
   reasoningSummary: "",
   commandOutput: "",
   diff: "",
@@ -194,13 +265,296 @@ const createWidgetState = (
   events: [],
   collapsed: true,
   isSubmitting: false,
+  includeScreenshot: false,
+  isCapturingScreenshot: false,
+  screenshotError: null,
   availableModels: [],
   selectedModel: preferredModel,
   selectedEffort: null
 });
 
+const createRestoredWidgetState = (record: GrabPersistedWidgetRecord): GrabWidget => ({
+  id: record.id,
+  viewId: record.viewId,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt,
+  anchor: record.anchor,
+  anchorMode: record.anchorMode,
+  selection: null,
+  serializedSelection: record.serializedSelection,
+  isAttached: false,
+  shouldResumeOnConnect: record.turnStatus === "running" && Boolean(record.bridgeSessionId),
+  connectionStatus: record.connectionStatus,
+  connectionError: record.connectionError,
+  prompt: record.prompt,
+  turnStatus: record.turnStatus,
+  activeThreadId: record.activeThreadId,
+  activeTurnId: record.activeTurnId,
+  bridgeSessionId: record.bridgeSessionId,
+  bridgeCwd: record.bridgeCwd,
+  bridgeVersion: record.bridgeVersion,
+  codexVersion: record.codexVersion,
+  historyEntryId: record.historyEntryId,
+  submittedAt: record.submittedAt,
+  completedAt: record.completedAt,
+  reasoningSummary: record.reasoningSummary,
+  commandOutput: record.commandOutput,
+  diff: record.diff,
+  isRevertingDiff: false,
+  plan: record.plan,
+  planExplanation: record.planExplanation,
+  pendingApproval: record.pendingApproval,
+  events: record.events,
+  collapsed: record.collapsed,
+  isSubmitting: record.isSubmitting,
+  includeScreenshot: record.includeScreenshot,
+  isCapturingScreenshot: record.isCapturingScreenshot,
+  screenshotError: record.screenshotError,
+  availableModels: record.availableModels,
+  selectedModel: record.selectedModel,
+  selectedEffort: record.selectedEffort
+});
+
+const isTerminalTurnStatus = (
+  status: TurnStatus,
+): status is Exclude<TurnStatus, "idle" | "running"> =>
+  status === "completed" || status === "failed" || status === "cancelled";
+
+const summarizeHistoryApprovals = (events: BridgeEvent[]): GrabTurnHistoryApprovalRecord[] => {
+  const approvals = new Map<string, GrabTurnHistoryApprovalRecord>();
+
+  for (const event of events) {
+    if (event.event === "approval.requested") {
+      const existing = approvals.get(event.approval.requestId);
+      approvals.set(event.approval.requestId, {
+        requestId: event.approval.requestId,
+        kind: event.approval.kind,
+        reason: event.approval.reason ?? null,
+        threadId: event.approval.threadId,
+        turnId: event.approval.turnId,
+        requestedAt: existing?.requestedAt ?? Date.now(),
+        resolvedAt: existing?.resolvedAt ?? null,
+        decision: existing?.decision ?? null
+      });
+      continue;
+    }
+
+    if (event.event === "approval.resolved") {
+      const existing = approvals.get(event.requestId);
+      if (!existing) {
+        approvals.set(event.requestId, {
+          requestId: event.requestId,
+          kind: "fileChange",
+          reason: null,
+          threadId: event.threadId,
+          requestedAt: Date.now(),
+          resolvedAt: Date.now(),
+          decision: event.decision ?? null
+        });
+        continue;
+      }
+
+      approvals.set(event.requestId, {
+        ...existing,
+        threadId: event.threadId ?? existing.threadId,
+        resolvedAt: Date.now(),
+        decision: event.decision ?? existing.decision
+      });
+    }
+  }
+
+  return Array.from(approvals.values()).sort((left, right) => left.requestedAt - right.requestedAt);
+};
+
+const createPendingHistoryEntryId = (widgetId: string): string =>
+  `${HISTORY_PENDING_PREFIX}:${widgetId}:${Date.now()}`;
+
+const buildHistoryRecord = (
+  widget: GrabWidget,
+  bridgeUrl: string,
+): GrabTurnHistoryRecord | null => {
+  if (!widget.historyEntryId || !widget.submittedAt) {
+    return null;
+  }
+
+  const status: GrabTurnHistoryStatus =
+    widget.turnStatus === "idle" ? "running" : widget.turnStatus === "running" ? "running" : widget.turnStatus;
+
+  return {
+    id: widget.historyEntryId,
+    turnId: widget.activeTurnId,
+    widgetId: widget.id,
+    sessionId: widget.bridgeSessionId,
+    threadId: widget.activeThreadId,
+    createdAt: widget.submittedAt,
+    updatedAt: Date.now(),
+    completedAt: widget.completedAt,
+    bridgeUrl,
+    cwd: widget.bridgeCwd,
+    bridgeVersion: widget.bridgeVersion,
+    codexVersion: widget.codexVersion,
+    selection: widget.serializedSelection,
+    prompt: widget.prompt,
+    model: widget.selectedModel,
+    effort: widget.selectedEffort,
+    status,
+    reasoningSummary: widget.reasoningSummary,
+    commandOutput: widget.commandOutput,
+    diff: widget.diff,
+    plan: widget.plan,
+    planExplanation: widget.planExplanation,
+    approvals: summarizeHistoryApprovals(widget.events),
+    errorMessage: widget.turnStatus === "failed" ? widget.connectionError : null
+  };
+};
+
+const createHistoryFingerprint = (record: GrabTurnHistoryRecord): string =>
+  JSON.stringify({
+    id: record.id,
+    turnId: record.turnId,
+    threadId: record.threadId,
+    createdAt: record.createdAt,
+    completedAt: record.completedAt,
+    selection: record.selection,
+    prompt: record.prompt,
+    model: record.model,
+    effort: record.effort,
+    status: record.status,
+    reasoningSummary: record.reasoningSummary,
+    commandOutput: record.commandOutput,
+    diff: record.diff,
+    plan: record.plan,
+    planExplanation: record.planExplanation,
+    approvals: record.approvals,
+    errorMessage: record.errorMessage,
+    bridgeUrl: record.bridgeUrl,
+    cwd: record.cwd,
+    bridgeVersion: record.bridgeVersion,
+    codexVersion: record.codexVersion,
+    sessionId: record.sessionId
+  });
+
+const upsertHistoryRecord = (
+  records: GrabTurnHistoryRecord[],
+  record: GrabTurnHistoryRecord,
+  previousId?: string | null,
+): GrabTurnHistoryRecord[] => {
+  const filtered = records.filter(
+    (candidate) => candidate.id !== record.id && candidate.id !== previousId,
+  );
+  return [...filtered, record].sort((left, right) => right.updatedAt - left.updatedAt);
+};
+
+const normalizeSourceFileName = (fileName: string | null | undefined): string | null =>
+  fileName ? fileName.split("?")[0] ?? fileName : null;
+
+const doesSelectionMatch = (
+  stored: SerializedGrabElementContext,
+  resolved: GrabElementContext,
+): boolean => {
+  if (
+    stored.componentName &&
+    resolved.componentName &&
+    stored.componentName !== resolved.componentName
+  ) {
+    return false;
+  }
+
+  const storedSource = normalizeSourceFileName(stored.source?.fileName);
+  const resolvedSource = normalizeSourceFileName(resolved.source?.fileName);
+
+  if (storedSource && resolvedSource && storedSource !== resolvedSource) {
+    return false;
+  }
+
+  return true;
+};
+
+const buildPersistedWidgetRecord = (widget: GrabWidget): GrabPersistedWidgetRecord => ({
+  id: widget.id,
+  viewId: widget.viewId,
+  createdAt: widget.createdAt,
+  updatedAt: Date.now(),
+  anchor: widget.anchor,
+  anchorMode: widget.anchorMode,
+  serializedSelection: widget.serializedSelection,
+  prompt: widget.prompt,
+  collapsed: widget.collapsed,
+  includeScreenshot: widget.includeScreenshot,
+  isCapturingScreenshot: widget.isCapturingScreenshot,
+  screenshotError: widget.screenshotError,
+  selectedModel: widget.selectedModel,
+  selectedEffort: widget.selectedEffort,
+  availableModels: widget.availableModels,
+  connectionStatus: widget.connectionStatus,
+  connectionError: widget.connectionError,
+  turnStatus: widget.turnStatus,
+  activeThreadId: widget.activeThreadId,
+  activeTurnId: widget.activeTurnId,
+  bridgeSessionId: widget.bridgeSessionId,
+  bridgeCwd: widget.bridgeCwd,
+  bridgeVersion: widget.bridgeVersion,
+  codexVersion: widget.codexVersion,
+  historyEntryId: widget.historyEntryId,
+  submittedAt: widget.submittedAt,
+  completedAt: widget.completedAt,
+  reasoningSummary: widget.reasoningSummary,
+  commandOutput: widget.commandOutput,
+  diff: widget.diff,
+  plan: widget.plan,
+  planExplanation: widget.planExplanation,
+  pendingApproval: widget.pendingApproval,
+  events: widget.events,
+  isSubmitting: widget.isSubmitting
+});
+
+const createWidgetPersistenceFingerprint = (record: GrabPersistedWidgetRecord): string =>
+  JSON.stringify({
+    viewId: record.viewId,
+    anchor: record.anchor,
+    anchorMode: record.anchorMode,
+    serializedSelection: record.serializedSelection,
+    prompt: record.prompt,
+    collapsed: record.collapsed,
+    includeScreenshot: record.includeScreenshot,
+    isCapturingScreenshot: record.isCapturingScreenshot,
+    screenshotError: record.screenshotError,
+    selectedModel: record.selectedModel,
+    selectedEffort: record.selectedEffort,
+    availableModels: record.availableModels,
+    connectionStatus: record.connectionStatus,
+    connectionError: record.connectionError,
+    turnStatus: record.turnStatus,
+    activeThreadId: record.activeThreadId,
+    activeTurnId: record.activeTurnId,
+    bridgeSessionId: record.bridgeSessionId,
+    bridgeCwd: record.bridgeCwd,
+    bridgeVersion: record.bridgeVersion,
+    codexVersion: record.codexVersion,
+    historyEntryId: record.historyEntryId,
+    submittedAt: record.submittedAt,
+    completedAt: record.completedAt,
+    reasoningSummary: record.reasoningSummary,
+    commandOutput: record.commandOutput,
+    diff: record.diff,
+    plan: record.plan,
+    planExplanation: record.planExplanation,
+    pendingApproval: record.pendingApproval,
+    events: record.events,
+    isSubmitting: record.isSubmitting
+  });
+
+const upsertWidgetRecord = (
+  records: GrabPersistedWidgetRecord[],
+  record: GrabPersistedWidgetRecord,
+): GrabPersistedWidgetRecord[] =>
+  [...records.filter((candidate) => candidate.id !== record.id), record].sort(
+    (left, right) => right.updatedAt - left.updatedAt,
+  );
+
 const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
   const events = [...widget.events, event].slice(-MAX_EVENTS);
+  const updatedAt = Date.now();
 
   switch (event.event) {
     case "session.started":
@@ -216,10 +570,27 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         return {
           ...widget,
           connectionStatus: "connected",
-          connectionError: null,
+          connectionError:
+            widget.shouldResumeOnConnect && !event.resumed && widget.turnStatus === "running"
+              ? RESUME_FAILURE_MESSAGE
+              : null,
+          bridgeSessionId: event.sessionId,
+          bridgeCwd: event.cwd,
+          bridgeVersion: event.bridgeVersion,
+          codexVersion: event.codexVersion,
+          turnStatus:
+            widget.shouldResumeOnConnect && !event.resumed && widget.turnStatus === "running"
+              ? "failed"
+              : widget.turnStatus,
+          completedAt:
+            widget.shouldResumeOnConnect && !event.resumed && widget.turnStatus === "running"
+              ? widget.completedAt ?? updatedAt
+              : widget.completedAt,
           availableModels: event.models,
           selectedModel,
           selectedEffort,
+          shouldResumeOnConnect: false,
+          updatedAt,
           events
         };
       }
@@ -227,6 +598,7 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
       return {
         ...widget,
         serializedSelection: event.selection,
+        updatedAt,
         events
       };
     case "turn.started":
@@ -234,21 +606,25 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         ...widget,
         activeThreadId: event.threadId,
         activeTurnId: event.turnId,
+        historyEntryId: event.turnId,
         serializedSelection: event.selection,
         turnStatus: "running",
         isSubmitting: false,
+        shouldResumeOnConnect: false,
         reasoningSummary: "",
         commandOutput: "",
         diff: "",
         plan: [],
         planExplanation: null,
         pendingApproval: null,
+        updatedAt,
         events
       };
     case "reasoning.summary.delta":
       return {
         ...widget,
         reasoningSummary: `${widget.reasoningSummary}${event.delta}`,
+        updatedAt,
         events
       };
     case "plan.updated":
@@ -256,18 +632,21 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         ...widget,
         plan: event.plan,
         planExplanation: event.explanation,
+        updatedAt,
         events
       };
     case "command.output.delta":
       return {
         ...widget,
         commandOutput: `${widget.commandOutput}${event.delta}`,
+        updatedAt,
         events
       };
     case "diff.updated":
       return {
         ...widget,
         diff: event.diff,
+        updatedAt,
         events
       };
     case "diff.reverted":
@@ -276,6 +655,7 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         diff: "",
         isRevertingDiff: false,
         commandOutput: `${widget.commandOutput}${widget.commandOutput ? "\n" : ""}${event.message}`,
+        updatedAt,
         events
       };
     case "diff.revert.failed":
@@ -284,12 +664,14 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         isRevertingDiff: false,
         commandOutput: `${widget.commandOutput}${widget.commandOutput ? "\n" : ""}${event.message}`,
         connectionError: event.message,
+        updatedAt,
         events
       };
     case "approval.requested":
       return {
         ...widget,
         pendingApproval: event.approval,
+        updatedAt,
         events
       };
     case "approval.resolved":
@@ -297,6 +679,7 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         ...widget,
         pendingApproval:
           widget.pendingApproval?.requestId === event.requestId ? null : widget.pendingApproval,
+        updatedAt,
         events
       };
     case "turn.completed":
@@ -306,7 +689,9 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         activeTurnId: event.turnId,
         turnStatus: "completed",
         isSubmitting: false,
+        completedAt: widget.completedAt ?? Date.now(),
         pendingApproval: null,
+        updatedAt,
         events
       };
     case "turn.failed":
@@ -316,8 +701,10 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         activeTurnId: event.turnId,
         turnStatus: "failed",
         isSubmitting: false,
+        completedAt: widget.completedAt ?? Date.now(),
         connectionError: event.message,
         pendingApproval: null,
+        updatedAt,
         events
       };
     case "turn.cancelled":
@@ -327,7 +714,9 @@ const mapBridgeEvent = (widget: GrabWidget, event: BridgeEvent): GrabWidget => {
         activeTurnId: event.turnId,
         turnStatus: "cancelled",
         isSubmitting: false,
+        completedAt: widget.completedAt ?? Date.now(),
         pendingApproval: null,
+        updatedAt,
         events
       };
   }
@@ -337,18 +726,49 @@ export const CodexGrabProvider = ({
   bridgeUrl,
   token,
   enabled = true,
+  viewId,
+  persistWidgets = enabled,
   children
 }: CodexGrabProviderProps) => {
-  const [widgets, setWidgets] = useState<GrabWidget[]>([]);
+  const currentViewId = viewId ?? getCurrentViewId();
+  const [allWidgets, setAllWidgets] = useState<GrabWidget[]>([]);
   const [unsupportedMessage, setUnsupportedMessage] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [history, setHistory] = useState<GrabTurnHistoryRecord[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<GrabTurnHistoryStorageStatus>("idle");
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const socketsRef = useRef(new Map<string, WebSocket>());
   const selectorRef = useRef<SelectionController | null>(null);
   const preferredModelRef = useRef<string | null>(readStoredModelPreference());
+  const storeRef = useRef<ReturnType<typeof createCodexGrabStore> | null>(null);
+  const storeWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const previousHistorySnapshotRef = useRef(
+    new Map<string, { historyEntryId: string; fingerprint: string }>(),
+  );
+  const previousWidgetSnapshotRef = useRef(new Map<string, string>());
+  const previousViewIdRef = useRef(currentViewId);
+
+  const getStore = useEffectEvent(() => {
+    if (!storeRef.current) {
+      storeRef.current = createCodexGrabStore();
+    }
+
+    return storeRef.current;
+  });
+
+  const queueStoreWrite = useEffectEvent((writer: () => Promise<void>) => {
+    storeWriteChainRef.current = storeWriteChainRef.current
+      .catch(() => undefined)
+      .then(writer)
+      .catch((error) => {
+        setHistoryError(error instanceof Error ? error.message : "Failed to persist codex-grab state.");
+      });
+  });
 
   const updateWidgets = useEffectEvent((updater: (prev: GrabWidget[]) => GrabWidget[]) => {
     startTransition(() => {
-      setWidgets(updater);
+      setAllWidgets(updater);
     });
   });
 
@@ -370,14 +790,23 @@ export const CodexGrabProvider = ({
     }
   });
 
-  const connectWidget = useEffectEvent((widgetId: string) => {
+  const connectWidget = useEffectEvent((widgetId: string, resumeSessionId?: string | null) => {
+    const existing = socketsRef.current.get(widgetId);
+    if (
+      existing &&
+      (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
+
     const socket = new WebSocket(bridgeUrl);
     socketsRef.current.set(widgetId, socket);
 
     socket.addEventListener("open", () => {
       sendMessage(widgetId, {
         type: "session.ping",
-        token
+        token,
+        ...(resumeSessionId ? { resumeSessionId } : {})
       });
     });
 
@@ -396,10 +825,18 @@ export const CodexGrabProvider = ({
     });
 
     socket.addEventListener("close", () => {
+      socketsRef.current.delete(widgetId);
       updateWidget(widgetId, (widget) => ({
         ...widget,
-        connectionStatus: "error",
-        connectionError: widget.connectionError ?? "Bridge connection closed."
+        connectionStatus:
+          widget.turnStatus === "running" && widget.shouldResumeOnConnect
+            ? widget.connectionStatus
+            : "error",
+        connectionError:
+          widget.turnStatus === "running" && widget.shouldResumeOnConnect
+            ? widget.connectionError
+            : widget.connectionError ?? "Bridge connection closed.",
+        updatedAt: Date.now()
       }));
     });
 
@@ -407,9 +844,64 @@ export const CodexGrabProvider = ({
       updateWidget(widgetId, (widget) => ({
         ...widget,
         connectionStatus: "error",
-        connectionError: "Bridge connection failed."
+        connectionError: "Bridge connection failed.",
+        updatedAt: Date.now()
       }));
     });
+  });
+
+  const captureWidgetScreenshot = useEffectEvent(async (widgetId: string) => {
+    const widget = allWidgets.find((candidate) => candidate.id === widgetId);
+    if (!widget) {
+      return null;
+    }
+
+    const fallbackScreenshot = widget.serializedSelection.screenshot ?? null;
+    if (!widget.selection) {
+      updateWidget(widgetId, (current) => ({
+        ...current,
+        isCapturingScreenshot: false,
+        screenshotError: fallbackScreenshot
+          ? current.screenshotError
+          : "Widget target is unavailable for screenshot capture.",
+        includeScreenshot: Boolean(fallbackScreenshot),
+        updatedAt: Date.now()
+      }));
+      return fallbackScreenshot;
+    }
+
+    updateWidget(widgetId, (current) => ({
+      ...current,
+      isCapturingScreenshot: true,
+      screenshotError: null,
+      updatedAt: Date.now()
+    }));
+
+    try {
+      const screenshot = await captureElementScreenshot(widget.selection.element);
+      updateWidget(widgetId, (current) => ({
+        ...current,
+        includeScreenshot: true,
+        isCapturingScreenshot: false,
+        screenshotError: null,
+        serializedSelection: {
+          ...current.serializedSelection,
+          screenshot
+        },
+        updatedAt: Date.now()
+      }));
+      return screenshot;
+    } catch (error) {
+      const screenshotError = getErrorMessage(error, "Failed to capture the selected UI screenshot.");
+      updateWidget(widgetId, (current) => ({
+        ...current,
+        includeScreenshot: Boolean(current.serializedSelection.screenshot),
+        isCapturingScreenshot: false,
+        screenshotError,
+        updatedAt: Date.now()
+      }));
+      return fallbackScreenshot;
+    }
   });
 
   const ensureSelector = useEffectEvent(() => {
@@ -422,7 +914,7 @@ export const CodexGrabProvider = ({
         setIsSelecting(false);
         setUnsupportedMessage(null);
 
-        const widget = createWidgetState(selection, preferredModelRef.current);
+        const widget = createWidgetState(selection, currentViewId, preferredModelRef.current);
         updateWidgets((prev) => [...prev, widget]);
         connectWidget(widget.id);
       },
@@ -444,7 +936,10 @@ export const CodexGrabProvider = ({
         socket.close();
       }
       socketsRef.current.clear();
-      setWidgets([]);
+      setAllWidgets([]);
+      setHistory([]);
+      setHistoryStatus("idle");
+      setHistoryError(null);
       return;
     }
 
@@ -458,10 +953,237 @@ export const CodexGrabProvider = ({
     };
   }, [enabled]);
 
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    let cancelled = false;
+    setHistoryStatus("loading");
+    setHistoryError(null);
+
+    Promise.all([
+      getStore().listTurns(),
+      persistWidgets ? getStore().listWidgets() : Promise.resolve([])
+    ])
+      .then(([turns, widgetRecords]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setHistory(turns);
+        setAllWidgets(widgetRecords.map((record) => createRestoredWidgetState(record)));
+        setHistoryStatus("ready");
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setHistory([]);
+        setHistoryStatus("error");
+        setHistoryError(
+          error instanceof HistoryStorageUnavailableError
+            ? "History is unavailable in this browser."
+            : error instanceof Error
+              ? error.message
+              : "Failed to load history.",
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, getStore, persistWidgets]);
+
+  useEffect(() => {
+    if (!enabled || historyStatus === "error") {
+      return;
+    }
+
+    const nextSnapshots = new Map<string, { historyEntryId: string; fingerprint: string }>();
+
+    for (const widget of allWidgets) {
+      const record = buildHistoryRecord(widget, bridgeUrl);
+      if (!record) {
+        continue;
+      }
+
+      const fingerprint = createHistoryFingerprint(record);
+      const previous = previousHistorySnapshotRef.current.get(widget.id);
+      nextSnapshots.set(widget.id, { historyEntryId: record.id, fingerprint });
+
+      if (previous?.historyEntryId === record.id && previous.fingerprint === fingerprint) {
+        continue;
+      }
+
+      setHistory((current) => upsertHistoryRecord(current, record, previous?.historyEntryId));
+      setHistoryStatus((current) => (current === "idle" ? "ready" : current));
+
+      queueStoreWrite(async () => {
+        const store = getStore();
+        await store.putTurn(record);
+        if (previous?.historyEntryId && previous.historyEntryId !== record.id) {
+          await store.deleteTurn(previous.historyEntryId);
+        }
+      });
+    }
+
+    previousHistorySnapshotRef.current = nextSnapshots;
+  }, [allWidgets, bridgeUrl, enabled, getStore, historyStatus, queueStoreWrite]);
+
+  useEffect(() => {
+    if (!enabled || !persistWidgets) {
+      return;
+    }
+
+    for (const widget of allWidgets) {
+      const record = buildPersistedWidgetRecord(widget);
+      const fingerprint = createWidgetPersistenceFingerprint(record);
+      if (previousWidgetSnapshotRef.current.get(widget.id) === fingerprint) {
+        continue;
+      }
+
+      previousWidgetSnapshotRef.current.set(widget.id, fingerprint);
+      queueStoreWrite(async () => {
+        await getStore().putWidget(record);
+      });
+    }
+  }, [allWidgets, enabled, getStore, persistWidgets, queueStoreWrite]);
+
+  useEffect(() => {
+    if (previousViewIdRef.current === currentViewId) {
+      return;
+    }
+
+    previousViewIdRef.current = currentViewId;
+    updateWidgets((prev) =>
+      prev.map((widget) =>
+        widget.viewId === currentViewId
+          ? widget
+          : {
+              ...widget,
+              selection: null,
+              isAttached: false,
+              updatedAt: Date.now()
+            },
+      ),
+    );
+  }, [currentViewId, updateWidgets]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    for (const widget of allWidgets) {
+      const socket = socketsRef.current.get(widget.id);
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        continue;
+      }
+
+      if (widget.shouldResumeOnConnect && widget.bridgeSessionId) {
+        connectWidget(widget.id, widget.bridgeSessionId);
+        continue;
+      }
+
+      if (widget.viewId === currentViewId && widget.isAttached) {
+        connectWidget(widget.id);
+      }
+    }
+  }, [allWidgets, connectWidget, currentViewId, enabled]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    let cancelled = false;
+    let frame = 0;
+    let observer: MutationObserver | null = null;
+
+    const attachWidgets = async () => {
+      const candidates = allWidgets.filter(
+        (widget) => widget.viewId === currentViewId && !widget.isAttached,
+      );
+      if (!candidates.length) {
+        return;
+      }
+
+      for (const widget of candidates) {
+        if (!widget.serializedSelection.selector) {
+          continue;
+        }
+
+        let target: Element | null = null;
+        try {
+          target = document.querySelector(widget.serializedSelection.selector);
+        } catch {
+          target = null;
+        }
+
+        if (!target) {
+          continue;
+        }
+
+        const resolved = await getElementContext(target).catch(() => null);
+        if (!resolved || !resolved.isReactComponent || !doesSelectionMatch(widget.serializedSelection, resolved)) {
+          continue;
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        updateWidget(widget.id, (current) => ({
+          ...current,
+          selection: resolved,
+          serializedSelection: serializeElementContext(resolved),
+          isAttached: true,
+          anchor:
+            current.anchorMode === "element" ? getWidgetAnchor(resolved.element) : current.anchor,
+          updatedAt: Date.now()
+        }));
+      }
+    };
+
+    void attachWidgets();
+
+    if (allWidgets.some((widget) => widget.viewId === currentViewId && !widget.isAttached)) {
+      observer = new MutationObserver(() => {
+        if (frame) {
+          window.cancelAnimationFrame(frame);
+        }
+        frame = window.requestAnimationFrame(() => {
+          void attachWidgets();
+        });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    return () => {
+      cancelled = true;
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+      observer?.disconnect();
+    };
+  }, [allWidgets, currentViewId, enabled, updateWidget]);
+
+  const widgets = useMemo(
+    () => allWidgets.filter((widget) => widget.viewId === currentViewId && widget.isAttached),
+    [allWidgets, currentViewId],
+  );
+
   const value = useMemo<CodexGrabContextValue>(
     () => ({
       widgets,
       unsupportedMessage,
+      history,
+      historyStatus,
+      historyError,
+      isHistoryOpen,
+      currentViewId,
       isSelecting,
       startSelection() {
         if (!enabled) {
@@ -476,18 +1198,27 @@ export const CodexGrabProvider = ({
       },
       removeWidget(widgetId: string) {
         closeWidgetSocket(widgetId);
+        previousWidgetSnapshotRef.current.delete(widgetId);
         updateWidgets((prev) => prev.filter((widget) => widget.id !== widgetId));
+        if (persistWidgets) {
+          queueStoreWrite(async () => {
+            await getStore().deleteWidget(widgetId);
+          });
+        }
       },
       updateAnchor(widgetId: string, anchor: { top: number; left: number }) {
         updateWidget(widgetId, (widget) => ({
           ...widget,
-          anchor
+          anchor,
+          anchorMode: "manual",
+          updatedAt: Date.now()
         }));
       },
       updatePrompt(widgetId: string, prompt: string) {
         updateWidget(widgetId, (widget) => ({
           ...widget,
-          prompt
+          prompt,
+          updatedAt: Date.now()
         }));
       },
       updateModel(widgetId: string, model: string) {
@@ -511,7 +1242,8 @@ export const CodexGrabProvider = ({
           return {
             ...widget,
             selectedModel: nextModel,
-            selectedEffort
+            selectedEffort,
+            updatedAt: Date.now()
           };
         });
       },
@@ -529,30 +1261,82 @@ export const CodexGrabProvider = ({
 
           return {
             ...widget,
-            selectedEffort: effort
+            selectedEffort: effort,
+            updatedAt: Date.now()
           };
         });
       },
-      submitPrompt(widgetId: string) {
-        const widget = widgets.find((candidate) => candidate.id === widgetId);
+      async toggleScreenshot(widgetId: string) {
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
+        if (!widget || widget.isCapturingScreenshot) {
+          return;
+        }
+
+        if (widget.includeScreenshot) {
+          updateWidget(widgetId, (current) => ({
+            ...current,
+            includeScreenshot: false,
+            isCapturingScreenshot: false,
+            screenshotError: null,
+            serializedSelection: {
+              ...current.serializedSelection,
+              screenshot: null
+            },
+            updatedAt: Date.now()
+          }));
+          return;
+        }
+
+        await captureWidgetScreenshot(widgetId);
+      },
+      async refreshScreenshot(widgetId: string) {
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
+        if (!widget || widget.isCapturingScreenshot) {
+          return;
+        }
+
+        await captureWidgetScreenshot(widgetId);
+      },
+      async submitPrompt(widgetId: string) {
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
         if (
           !widget ||
           widget.connectionStatus !== "connected" ||
-          !widget.prompt.trim()
+          !widget.prompt.trim() ||
+          widget.isCapturingScreenshot
         ) {
           return;
         }
 
+        const screenshot = widget.includeScreenshot
+          ? await captureWidgetScreenshot(widgetId)
+          : null;
+
+        if (widget.includeScreenshot && !screenshot) {
+          return;
+        }
+
+        const selection: SerializedGrabElementContext = {
+          ...widget.serializedSelection,
+          screenshot
+        };
+
         updateWidget(widgetId, (current) => ({
           ...current,
+          serializedSelection: selection,
+          screenshotError: null,
           collapsed: true,
-          isSubmitting: true
+          isSubmitting: true,
+          historyEntryId: current.historyEntryId ?? createPendingHistoryEntryId(current.id),
+          submittedAt: current.submittedAt ?? Date.now(),
+          completedAt: null,
+          updatedAt: Date.now()
         }));
 
         sendMessage(widgetId, {
           type: "select.submitPrompt",
           prompt: widget.prompt,
-          selection: widget.serializedSelection,
+          selection,
           preferences: {
             model: widget.selectedModel,
             effort: widget.selectedEffort
@@ -560,7 +1344,7 @@ export const CodexGrabProvider = ({
         });
       },
       approve(widgetId: string) {
-        const widget = widgets.find((candidate) => candidate.id === widgetId);
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
         if (!widget?.pendingApproval) {
           return;
         }
@@ -575,7 +1359,7 @@ export const CodexGrabProvider = ({
         });
       },
       decline(widgetId: string) {
-        const widget = widgets.find((candidate) => candidate.id === widgetId);
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
         if (!widget?.pendingApproval) {
           return;
         }
@@ -590,7 +1374,7 @@ export const CodexGrabProvider = ({
         });
       },
       interrupt(widgetId: string) {
-        const widget = widgets.find((candidate) => candidate.id === widgetId);
+        const widget = allWidgets.find((candidate) => candidate.id === widgetId);
         if (!widget?.activeThreadId || !widget.activeTurnId) {
           return;
         }
@@ -604,7 +1388,8 @@ export const CodexGrabProvider = ({
       toggleWidget(widgetId: string) {
         updateWidget(widgetId, (widget) => ({
           ...widget,
-          collapsed: !widget.collapsed
+          collapsed: !widget.collapsed,
+          updatedAt: Date.now()
         }));
       },
       setWidgetCollapsed(widgetId: string, collapsed: boolean) {
@@ -613,7 +1398,8 @@ export const CodexGrabProvider = ({
             ? widget
             : {
                 ...widget,
-                collapsed
+                collapsed,
+                updatedAt: Date.now()
               },
         );
       },
@@ -624,22 +1410,71 @@ export const CodexGrabProvider = ({
               ? widget
               : {
                   ...widget,
-                  collapsed: true
+                  collapsed: true,
+                  updatedAt: Date.now()
                 },
           ),
         );
+      },
+      async clearHistory() {
+        setHistory([]);
+        setHistoryError(null);
+        setHistoryStatus("ready");
+        previousHistorySnapshotRef.current = new Map();
+
+        try {
+          await getStore().clearTurns();
+        } catch (error) {
+          setHistoryStatus("error");
+          setHistoryError(error instanceof Error ? error.message : "Failed to clear history.");
+        }
+      },
+      async clearPersistedWidgets() {
+        for (const socket of socketsRef.current.values()) {
+          socket.close();
+        }
+        socketsRef.current.clear();
+        previousWidgetSnapshotRef.current = new Map();
+        setAllWidgets([]);
+
+        if (!persistWidgets) {
+          return;
+        }
+
+        try {
+          await getStore().clearWidgets();
+        } catch (error) {
+          setHistoryError(
+            error instanceof Error ? error.message : "Failed to clear saved widgets.",
+          );
+        }
+      },
+      openHistory() {
+        setIsHistoryOpen(true);
+      },
+      closeHistory() {
+        setIsHistoryOpen(false);
       }
     }),
     [
       closeWidgetSocket,
       connectWidget,
+      currentViewId,
       enabled,
       ensureSelector,
+      getStore,
+      history,
+      historyError,
+      historyStatus,
+      isHistoryOpen,
       isSelecting,
+      persistWidgets,
+      queueStoreWrite,
       sendMessage,
       unsupportedMessage,
       updateWidget,
       updateWidgets,
+      allWidgets,
       widgets
     ],
   );

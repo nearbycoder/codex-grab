@@ -84,6 +84,7 @@ export const serializeElementContext = (
   stack: context.stack,
   styles: context.styles,
   source: context.source,
+  screenshot: context.screenshot ?? null,
   fiberId: context.fiberId,
   isReactComponent: context.isReactComponent
 });

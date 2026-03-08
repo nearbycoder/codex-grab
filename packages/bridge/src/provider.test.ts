@@ -313,6 +313,67 @@ describe("CodexAgentProvider notification mapping", () => {
     });
   });
 
+  it("passes an attached UI screenshot as an image input", async () => {
+    const mockClient = {
+      getMetadata: () => ({ version: "0.108.0", accountEmail: "test@example.com" }),
+      onNotification() {
+        return () => undefined;
+      },
+      onServerRequest() {
+        return () => undefined;
+      },
+      request: vi
+        .fn()
+        .mockResolvedValueOnce({ thread: { id: "thread-1" } })
+        .mockResolvedValueOnce({ turn: { id: "turn-1" } }),
+      respond: vi.fn(),
+      dispose: vi.fn()
+    };
+
+    const provider = new CodexAgentProvider(mockClient as never, "/repo", () => undefined);
+
+    await provider.submitPrompt(
+      "session-1",
+      "Use this layout as reference",
+      {
+        componentName: "FeatureCard",
+        selector: "article",
+        htmlPreview: "<article />",
+        stackString: "FeatureCard",
+        stack: [],
+        styles: "",
+        source: null,
+        screenshot: {
+          dataUrl: "data:image/png;base64,abc123",
+          mimeType: "image/png",
+          width: 320,
+          height: 180,
+          scale: 1,
+          capturedAt: 100
+        },
+        fiberId: 1,
+        isReactComponent: true
+      },
+      {
+        model: "gpt-5.3-codex",
+        effort: "medium"
+      },
+    );
+
+    expect(mockClient.request).toHaveBeenNthCalledWith(2, "turn/start", {
+      threadId: "thread-1",
+      input: [
+        { type: "text", text: expect.any(String), text_elements: [] },
+        { type: "image", url: "data:image/png;base64,abc123" }
+      ],
+      cwd: "/repo",
+      approvalPolicy: "on-request",
+      summary: "auto",
+      model: "gpt-5.3-codex",
+      effort: "medium"
+    });
+  });
+
   it("retries turn/start with detailed mode when auto is unsupported", async () => {
     const mockClient = {
       getMetadata: () => ({ version: "0.108.0", accountEmail: "test@example.com" }),

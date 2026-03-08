@@ -1,7 +1,9 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { CodexGrabOverlay } from "./overlay.js";
-import { CodexGrabProvider } from "./context.js";
+import { CodexGrabProvider, useCodexGrab } from "./context.js";
+import { installMockIndexedDb } from "./test-indexeddb.js";
 import type {
   CreateElementSelectorOptions,
   GrabElementContext,
@@ -65,6 +67,25 @@ vi.mock("@codex-grab/core", async () => {
       const { element, ...serialized } = context;
       void element;
       return serialized;
+    },
+    async getElementContext(element: Element): Promise<GrabElementContext> {
+      const name = element.textContent?.trim() || "Recovered";
+      return {
+        element,
+        componentName: name,
+        selector: element.id ? `#${element.id}` : null,
+        htmlPreview: element.outerHTML,
+        stackString: `${name} > Button`,
+        stack: [],
+        styles: "display:inline-flex;",
+        source: {
+          fileName: `/tmp/${name}.tsx`,
+          lineNumber: 10,
+          columnNumber: 3
+        },
+        fiberId: 1,
+        isReactComponent: true
+      };
     }
   };
 });
@@ -95,7 +116,11 @@ class MockSocket {
 
   send(data: string) {
     this.sent.push(data);
-    const message = JSON.parse(data) as { type?: string; token?: string };
+    const message = JSON.parse(data) as {
+      type?: string;
+      token?: string;
+      resumeSessionId?: string | null;
+    };
     if (message.type === "session.ping" && message.token === "secret") {
       this.emit(
         "message",
@@ -103,6 +128,7 @@ class MockSocket {
           data: JSON.stringify({
             event: "session.started",
             sessionId: "session",
+            resumed: Boolean(message.resumeSessionId),
             bridgeVersion: "0.1.0",
             codexVersion: "0.108.0",
             cwd: "/tmp",
@@ -165,9 +191,86 @@ class MockSocket {
   }
 }
 
+const getSentMessages = (socket: MockSocket | undefined) =>
+  (socket?.sent ?? []).map((payload) => JSON.parse(payload) as Record<string, unknown>);
+
+const findSentMessage = (socket: MockSocket | undefined, type: string) =>
+  getSentMessages(socket).find((message) => message.type === type);
+
+const findAnySentMessage = (type: string) =>
+  MockSocket.instances
+    .map((socket) => findSentMessage(socket, type))
+    .find((message) => message !== undefined);
+
+const flushPersistence = async () => {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
+
+const openHistoryFromLauncherMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+  fireEvent.contextMenu(screen.getByRole("button", { name: "Select area for codex-grab" }), {
+    clientX: 120,
+    clientY: 140
+  });
+  const historyAction = await screen.findByText("History");
+  await user.click(historyAction.closest("button") as HTMLButtonElement);
+};
+
+const HistoryHarness = () => {
+  const { openHistory } = useCodexGrab();
+  return <button onClick={() => openHistory()}>Open history panel</button>;
+};
+
+const HistoryStatusHarness = () => {
+  const { historyStatus, historyError } = useCodexGrab();
+  return (
+    <div>
+      <span>History status: {historyStatus}</span>
+      <span>History error: {historyError ?? "none"}</span>
+    </div>
+  );
+};
+
 describe("CodexGrabProvider", () => {
+  const createSelectionFromElement = (
+    element: HTMLButtonElement,
+    name: string,
+  ): GrabElementContext => {
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+      x: 20,
+      y: 40,
+      top: 40,
+      left: 20,
+      right: 180,
+      bottom: 80,
+      width: 160,
+      height: 40,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    return {
+      element,
+      componentName: name,
+      selector: `#${name.toLowerCase()}`,
+      htmlPreview: `<button>${name}</button>`,
+      stackString: `${name} > Button`,
+      stack: [],
+      styles: "display:inline-flex;",
+      source: {
+        fileName: `/tmp/${name}.tsx`,
+        lineNumber: 10,
+        columnNumber: 3
+      },
+      fiberId: 1,
+      isReactComponent: true
+    };
+  };
+
   const createSelection = (name: string): GrabElementContext => {
     const element = document.createElement("button");
+    element.id = name.toLowerCase();
     element.textContent = name;
     document.body.appendChild(element);
     vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
@@ -204,6 +307,7 @@ describe("CodexGrabProvider", () => {
     MockSocket.instances = [];
     vi.stubGlobal("WebSocket", MockSocket as unknown as typeof WebSocket);
     installMockLocalStorage();
+    installMockIndexedDb();
     selectorState.options = null;
     selectorState.active = false;
     window.localStorage.clear();
@@ -244,9 +348,10 @@ describe("CodexGrabProvider", () => {
     await user.click(screen.getByRole("button", { name: "More options" }));
     expect(await screen.findByDisplayValue("gpt-5.3-codex")).toBeTruthy();
     expect(await screen.findByDisplayValue("medium")).toBeTruthy();
-    expect(MockSocket.instances[0]?.sent).toContain(
-      JSON.stringify({ type: "session.ping", token: "secret" }),
-    );
+    expect(findSentMessage(MockSocket.instances[0], "session.ping")).toMatchObject({
+      type: "session.ping",
+      token: "secret"
+    });
   });
 
   it("supports multiple widgets with independent prompt submission", async () => {
@@ -261,10 +366,14 @@ describe("CodexGrabProvider", () => {
     await act(async () => {
       await selectorState.options?.onSelect(createSelection("HeroCard"));
     });
+    const heroSocket = MockSocket.instances.at(-1);
 
     await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
     await act(async () => {
       await selectorState.options?.onSelect(createSelection("FeatureCard"));
+    });
+    await waitFor(() => {
+      expect(MockSocket.instances.length).toBeGreaterThanOrEqual(2);
     });
 
     expect(screen.getAllByText("HeroCard").length).toBeGreaterThan(0);
@@ -278,39 +387,46 @@ describe("CodexGrabProvider", () => {
     expect(featureCardPanel).toBeTruthy();
 
     const featureCardScope = within(featureCardPanel as HTMLElement);
-    await user.type(
-      featureCardScope.getByPlaceholderText("Describe the change you want Codex to make."),
-      "Change this to Welcome!",
+    const featurePrompt = featureCardScope.getByPlaceholderText(
+      "Describe the change you want Codex to make.",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(
+      featurePrompt,
+      { target: { value: "Change this to Welcome!" } },
     );
+    const featureSocket = MockSocket.instances.find((socket) => socket !== heroSocket);
+    await waitFor(() => {
+      expect(featurePrompt.value).toBe("Change this to Welcome!");
+      expect(
+        (featureCardScope.getByRole("button", { name: "Send To Codex" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
     await user.click(featureCardScope.getByRole("button", { name: "Send To Codex" }));
 
-    expect(
-      MockSocket.instances[1]?.sent,
-    ).toContain(
-      JSON.stringify({
-        type: "select.submitPrompt",
-        prompt: "Change this to Welcome!",
-        selection: {
-          componentName: "FeatureCard",
-          selector: "#featurecard",
-          htmlPreview: "<button>FeatureCard</button>",
-          stackString: "FeatureCard > Button",
-          stack: [],
-          styles: "display:inline-flex;",
-          source: {
-            fileName: "/tmp/FeatureCard.tsx",
-            lineNumber: 10,
-            columnNumber: 3
-          },
-          fiberId: 1,
-          isReactComponent: true
+    expect(findSentMessage(featureSocket, "select.submitPrompt")).toMatchObject({
+      type: "select.submitPrompt",
+      prompt: "Change this to Welcome!",
+      selection: {
+        componentName: "FeatureCard",
+        selector: "#featurecard",
+        htmlPreview: "<button id=\"featurecard\">FeatureCard</button>",
+        stackString: "FeatureCard > Button",
+        stack: [],
+        styles: "display:inline-flex;",
+        source: {
+          fileName: "/tmp/FeatureCard.tsx",
+          lineNumber: 10,
+          columnNumber: 3
         },
-        preferences: {
-          model: "gpt-5.3-codex",
-          effort: "medium"
-        }
-      }),
-    );
+        fiberId: 1,
+        isReactComponent: true
+      },
+      preferences: {
+        model: "gpt-5.3-codex",
+        effort: "medium"
+      }
+    });
   });
 
   it("focuses the newest widget prompt when selecting another area", async () => {
@@ -378,38 +494,39 @@ describe("CodexGrabProvider", () => {
     await user.click(await screen.findByRole("option", { name: /gpt-5\.1-codex/i }));
     await user.click(featureCardScope.getByRole("button", { name: "Choose thinking" }));
     await user.click(await screen.findByRole("option", { name: /low/i }));
+    await waitFor(() => {
+      expect(featureCardScope.getByRole("button", { name: "Choose model" }).textContent).toContain(
+        "gpt-5.1-codex",
+      );
+      expect(
+        featureCardScope.getByRole("button", { name: "Choose thinking" }).textContent,
+      ).toContain("low");
+    });
 
-    await user.type(
-      featureCardScope.getByPlaceholderText("Describe the change you want Codex to make."),
-      "Change this to Welcome!",
+    const featurePrompt = featureCardScope.getByPlaceholderText(
+      "Describe the change you want Codex to make.",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(
+      featurePrompt,
+      { target: { value: "Change this to Welcome!" } },
     );
+    await waitFor(() => {
+      expect(featurePrompt.value).toBe("Change this to Welcome!");
+      expect(
+        (featureCardScope.getByRole("button", { name: "Send To Codex" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
     await user.click(featureCardScope.getByRole("button", { name: "Send To Codex" }));
 
-    expect(MockSocket.instances[0]?.sent).toContain(
-      JSON.stringify({
-        type: "select.submitPrompt",
-        prompt: "Change this to Welcome!",
-        selection: {
-          componentName: "FeatureCard",
-          selector: "#featurecard",
-          htmlPreview: "<button>FeatureCard</button>",
-          stackString: "FeatureCard > Button",
-          stack: [],
-          styles: "display:inline-flex;",
-          source: {
-            fileName: "/tmp/FeatureCard.tsx",
-            lineNumber: 10,
-            columnNumber: 3
-          },
-          fiberId: 1,
-          isReactComponent: true
-        },
-        preferences: {
-          model: "gpt-5.1-codex",
-          effort: "low"
-        }
-      }),
-    );
+    expect(findAnySentMessage("select.submitPrompt")).toMatchObject({
+      type: "select.submitPrompt",
+      prompt: "Change this to Welcome!",
+      preferences: {
+        model: "gpt-5.1-codex",
+        effort: "low"
+      }
+    });
   });
 
   it("reuses the stored model preference for new widgets", async () => {
@@ -441,37 +558,176 @@ describe("CodexGrabProvider", () => {
       storedCardScope.getByRole("button", { name: "Choose thinking" }).textContent,
     ).toContain("low");
 
-    await user.type(
-      storedCardScope.getByPlaceholderText("Describe the change you want Codex to make."),
-      "Use the stored model",
+    const storedPrompt = storedCardScope.getByPlaceholderText(
+      "Describe the change you want Codex to make.",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(
+      storedPrompt,
+      { target: { value: "Use the stored model" } },
     );
+    await waitFor(() => {
+      expect(storedPrompt.value).toBe("Use the stored model");
+      expect(
+        (storedCardScope.getByRole("button", { name: "Send To Codex" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
     await user.click(storedCardScope.getByRole("button", { name: "Send To Codex" }));
 
-    expect(MockSocket.instances[0]?.sent).toContain(
-      JSON.stringify({
-        type: "select.submitPrompt",
-        prompt: "Use the stored model",
-        selection: {
-          componentName: "StoredCard",
-          selector: "#storedcard",
-          htmlPreview: "<button>StoredCard</button>",
-          stackString: "StoredCard > Button",
-          stack: [],
-          styles: "display:inline-flex;",
-          source: {
-            fileName: "/tmp/StoredCard.tsx",
-            lineNumber: 10,
-            columnNumber: 3
-          },
-          fiberId: 1,
-          isReactComponent: true
-        },
-        preferences: {
-          model: "gpt-5.1-codex",
-          effort: "low"
-        }
-      }),
+    expect(findAnySentMessage("select.submitPrompt")).toMatchObject({
+      type: "select.submitPrompt",
+      prompt: "Use the stored model",
+      preferences: {
+        model: "gpt-5.1-codex",
+        effort: "low"
+      }
+    });
+  });
+
+  it("unmounts widgets when the view changes and remounts them when returning", async () => {
+    const user = userEvent.setup();
+
+    const RoutedHarness = () => {
+      const [route, setRoute] = useState("route-a");
+      return (
+        <>
+          <button onClick={() => setRoute("route-a")}>Route A</button>
+          <button onClick={() => setRoute("route-b")}>Route B</button>
+          <CodexGrabProvider
+            bridgeUrl="ws://127.0.0.1:4321"
+            token="secret"
+            viewId={route}
+          >
+            {route === "route-a" ? <button id="featurecard">FeatureCard</button> : <button id="othercard">OtherCard</button>}
+            <CodexGrabOverlay />
+          </CodexGrabProvider>
+        </>
+      );
+    };
+
+    render(<RoutedHarness />);
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    const featureButton = screen.getByRole("button", { name: "FeatureCard" });
+    await act(async () => {
+      await selectorState.options?.onSelect(
+        createSelectionFromElement(featureButton as HTMLButtonElement, "FeatureCard"),
+      );
+    });
+
+    expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Route B" }));
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Describe the change you want Codex to make.")).toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Route A" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("restores persisted widgets after refresh and resumes running turns", async () => {
+    const user = userEvent.setup();
+
+    const Shell = () => (
+      <CodexGrabProvider
+        bridgeUrl="ws://127.0.0.1:4321"
+        token="secret"
+        viewId="route-a"
+      >
+        <button id="featurecard">FeatureCard</button>
+        <CodexGrabOverlay />
+      </CodexGrabProvider>
     );
+
+    const firstRender = render(<Shell />);
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    const featureButton = screen.getByRole("button", { name: "FeatureCard" });
+    await act(async () => {
+      await selectorState.options?.onSelect(
+        createSelectionFromElement(featureButton as HTMLButtonElement, "FeatureCard"),
+      );
+    });
+    const keepAlivePrompt = screen.getByPlaceholderText(
+      "Describe the change you want Codex to make.",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(keepAlivePrompt, {
+      target: { value: "Keep this alive" }
+    });
+    await waitFor(() => {
+      expect(keepAlivePrompt.value).toBe("Keep this alive");
+      expect((screen.getByRole("button", { name: "Send To Codex" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.click(screen.getByRole("button", { name: "Send To Codex" }));
+
+    act(() => {
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.started",
+            threadId: "thread-live",
+            turnId: "turn-live",
+            selection: {
+              componentName: "FeatureCard",
+              selector: "#featurecard",
+              htmlPreview: "<button>FeatureCard</button>",
+              stackString: "FeatureCard > Button",
+              stack: [],
+              styles: "display:inline-flex;",
+              source: {
+                fileName: "/tmp/FeatureCard.tsx",
+                lineNumber: 10,
+                columnNumber: 3
+              },
+              fiberId: 1,
+              isReactComponent: true
+            }
+          })
+        }),
+      );
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "reasoning.summary.delta",
+            threadId: "thread-live",
+            turnId: "turn-live",
+            itemId: "item-1",
+            summaryIndex: 0,
+            delta: "Still working after refresh."
+          })
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Still working after refresh.")).toBeTruthy();
+    });
+    await flushPersistence();
+    firstRender.unmount();
+
+    render(<Shell />);
+
+    await waitFor(() => {
+      expect(
+        MockSocket.instances.some((socket) => {
+          const message = findSentMessage(socket, "session.ping");
+          return (
+            message?.token === "secret" &&
+            message?.resumeSessionId === "session"
+          );
+        }),
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText("Still working after refresh.")).toBeTruthy();
   });
 
   it("hides the overlay when the session cookie is present", () => {
@@ -483,5 +739,225 @@ describe("CodexGrabProvider", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Select area for codex-grab" })).toBeNull();
+  });
+
+  it("persists submitted turn history across reloads without recreating live widgets", async () => {
+    const user = userEvent.setup();
+    const firstRender = render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    await act(async () => {
+      await selectorState.options?.onSelect(createSelection("FeatureCard"));
+    });
+    const prompt = screen.getByPlaceholderText("Describe the change you want Codex to make.");
+    const featureSocket = MockSocket.instances.at(-1);
+    fireEvent.change(prompt, { target: { value: "Change the feature copy" } });
+    await waitFor(() => {
+      expect((prompt as HTMLTextAreaElement).value).toBe("Change the feature copy");
+      expect((screen.getByRole("button", { name: "Send To Codex" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.click(screen.getByRole("button", { name: "Send To Codex" }));
+
+    act(() => {
+      featureSocket?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.started",
+            threadId: "thread-1",
+            turnId: "turn-1",
+            selection: {
+              componentName: "FeatureCard",
+              selector: "#featurecard",
+              htmlPreview: "<button>FeatureCard</button>",
+              stackString: "FeatureCard > Button",
+              stack: [],
+              styles: "display:inline-flex;",
+              source: {
+                fileName: "/tmp/FeatureCard.tsx",
+                lineNumber: 10,
+                columnNumber: 3
+              },
+              fiberId: 1,
+              isReactComponent: true
+            }
+          })
+        }),
+      );
+      featureSocket?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "reasoning.summary.delta",
+            delta: "Updating the body copy."
+          })
+        }),
+      );
+      featureSocket?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "command.output.delta",
+            delta: "M demo-vite/src/App.tsx"
+          })
+        }),
+      );
+      featureSocket?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "diff.updated",
+            diff: [
+              "diff --git a/demo-vite/src/App.tsx b/demo-vite/src/App.tsx",
+              "--- a/demo-vite/src/App.tsx",
+              "+++ b/demo-vite/src/App.tsx",
+              "@@ -1,1 +1,1 @@",
+              "-Hello",
+              "+Hello world"
+            ].join("\n")
+          })
+        }),
+      );
+      featureSocket?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.completed",
+            threadId: "thread-1",
+            turnId: "turn-1"
+          })
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Done/)).toBeTruthy();
+    });
+    await flushPersistence();
+
+    firstRender.unmount();
+
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Describe the change you want Codex to make.")).toBeNull();
+    });
+
+    await openHistoryFromLauncherMenu(user);
+
+    expect(await screen.findByText("Saved browser history of Codex turns for this origin.")).toBeTruthy();
+    expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Change the feature copy/)).toBeTruthy();
+    expect(await screen.findByText(/Updating the body copy\./)).toBeTruthy();
+    expect(await screen.findByText(/M demo-vite\/src\/App\.tsx/)).toBeTruthy();
+    expect(document.querySelector("diffs-container")).toBeTruthy();
+  });
+
+  it("shows history unavailable state without breaking widgets when IndexedDB fails", async () => {
+    Object.defineProperty(window, "indexedDB", {
+      configurable: true,
+      value: undefined
+    });
+
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+        <HistoryStatusHarness />
+      </CodexGrabProvider>,
+    );
+
+    expect(await screen.findByText("History status: error")).toBeTruthy();
+    expect(screen.getByText("History error: History is unavailable in this browser.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Select area for codex-grab" })).toBeTruthy();
+  });
+
+  it("clears persisted history from the history dialog", async () => {
+    const user = userEvent.setup();
+    const firstRender = render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    await act(async () => {
+      await selectorState.options?.onSelect(createSelection("ClearHistoryCard"));
+    });
+
+    await user.type(
+      screen.getByPlaceholderText("Describe the change you want Codex to make."),
+      "Archive this run",
+    );
+    await user.click(screen.getByRole("button", { name: "Send To Codex" }));
+
+    act(() => {
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.started",
+            threadId: "thread-clear",
+            turnId: "turn-clear",
+            selection: {
+              componentName: "ClearHistoryCard",
+              selector: "#clearhistorycard",
+              htmlPreview: "<button>ClearHistoryCard</button>",
+              stackString: "ClearHistoryCard > Button",
+              stack: [],
+              styles: "display:inline-flex;",
+              source: {
+                fileName: "/tmp/ClearHistoryCard.tsx",
+                lineNumber: 10,
+                columnNumber: 3
+              },
+              fiberId: 1,
+              isReactComponent: true
+            }
+          })
+        }),
+      );
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.completed",
+            threadId: "thread-clear",
+            turnId: "turn-clear"
+          })
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Done")).toBeTruthy();
+    });
+    await flushPersistence();
+
+    firstRender.unmount();
+
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await openHistoryFromLauncherMenu(user);
+    await waitFor(() => {
+      expect(screen.queryByText("Loading history…")).toBeNull();
+    });
+
+    expect(await screen.findByText(/Archive this run/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Clear history" }));
+    await waitFor(() => {
+      expect(screen.getByText("No saved turns yet.")).toBeTruthy();
+    });
   });
 });

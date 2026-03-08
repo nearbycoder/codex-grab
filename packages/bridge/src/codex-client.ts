@@ -73,6 +73,28 @@ export interface CodexMetadata {
 export type CodexNotificationHandler = (message: JsonRpcNotification) => void;
 export type CodexServerRequestHandler = (message: JsonRpcRequest) => void;
 
+const getErrorCode = (error: unknown): string | undefined =>
+  error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+
+const toCodexInstallError = (error: unknown, fallback: string): Error => {
+  const message = error instanceof Error ? error.message : fallback;
+  const code = getErrorCode(error);
+
+  if (
+    code === "ENOENT" ||
+    message.includes("ENOENT") ||
+    /spawn\s+.+\s+enoent/i.test(message)
+  ) {
+    return new Error(
+      "Codex CLI was not found on PATH. Install Codex CLI and run `codex login` before starting codex-grab.",
+    );
+  }
+
+  return error instanceof Error ? error : new Error(fallback);
+};
+
 const getFreePort = async (): Promise<number> => {
   const server = net.createServer();
   server.listen(0, "127.0.0.1");
@@ -184,9 +206,7 @@ export class CodexAppServerClient {
 
   async start(): Promise<void> {
     const version = await this.versionReader(this.codexPath).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : "Failed to run Codex CLI version check.";
-      throw new Error(message.includes("ENOENT") ? "Codex CLI was not found on PATH." : message);
+      throw toCodexInstallError(error, "Failed to run Codex CLI version check.");
     });
     if (!isSupportedCodexVersion(version)) {
       throw new Error(
@@ -212,7 +232,9 @@ export class CodexAppServerClient {
       }
     });
 
-    this.ws = await Promise.race([this.socketConnector(port), childError]);
+    this.ws = await Promise.race([this.socketConnector(port), childError]).catch((error) => {
+      throw toCodexInstallError(error, "Failed to start codex app-server.");
+    });
     this.ws.on("message", (raw) => this.handleMessage(String(raw)));
 
     await this.request("initialize", {

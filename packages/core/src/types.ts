@@ -2,6 +2,15 @@ import type { StackFrame } from "bippy/source";
 
 export type GrabStackFrame = StackFrame;
 
+export interface GrabElementScreenshot {
+  dataUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  scale: number;
+  capturedAt: number;
+}
+
 export interface GrabElementContext {
   element: Element;
   componentName: string | null;
@@ -16,6 +25,7 @@ export interface GrabElementContext {
     columnNumber?: number;
     functionName?: string;
   } | null;
+  screenshot?: GrabElementScreenshot | null;
   fiberId: number | null;
   isReactComponent: boolean;
 }
@@ -117,6 +127,7 @@ export type BridgeEvent =
   | {
       event: "session.started";
       sessionId: string;
+      resumed: boolean;
       bridgeVersion: string;
       codexVersion: string;
       cwd: string;
@@ -202,6 +213,7 @@ export type BridgeClientMessage =
   | {
       type: "session.ping";
       token: string;
+      resumeSessionId?: string | null;
     }
   | {
       type: "select.submitPrompt";

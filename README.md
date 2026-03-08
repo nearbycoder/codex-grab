@@ -31,9 +31,24 @@ Useful dev commands:
 ```bash
 npm run dev:demo
 npm run dev:bridge
+npm run dev:all
 ```
 
 `@codex-grab/bridge` runs from `dist`, so if you change bridge source and are running the built CLI manually, rebuild before restarting it.
+
+`npm run dev:all` is the one-command local demo launcher. It builds the bridge, starts the bridge on `127.0.0.1:4318`, starts the routed Vite demo on `127.0.0.1:5173`, and shuts both down together when you stop the process.
+
+Optional environment overrides:
+
+```bash
+CODEX_GRAB_CWD=/absolute/path/to/workspace \
+CODEX_GRAB_TOKEN=dev-token \
+CODEX_GRAB_BRIDGE_PORT=4318 \
+CODEX_GRAB_DEMO_HOST=127.0.0.1 \
+CODEX_GRAB_DEMO_PORT=5173 \
+CODEX_GRAB_ALLOWED_ORIGIN=http://127.0.0.1:5173 \
+npm run dev:all
+```
 
 ## Quickstart
 
@@ -58,6 +73,8 @@ export function AppShell() {
       bridgeUrl="ws://127.0.0.1:4318"
       token="dev-token"
       enabled={import.meta.env.DEV}
+      viewId={`${window.location.pathname}${window.location.search}${window.location.hash}`}
+      persistWidgets
     >
       <App />
       <CodexGrabOverlay />
@@ -79,18 +96,29 @@ Then open `http://127.0.0.1:5173`.
 1. Use the floating circular picker button to enter selection mode.
 2. Click a React-owned element in the page.
 3. A pinned widget appears beside that element and focuses the prompt automatically.
-4. Press `Enter` to submit. Press `Shift+Enter` for a newline.
-5. After submit, the widget collapses into a small live status chip unless you click it again.
-6. While Codex runs, the chip streams short status text inline.
-7. When finished, the chip stays compact and shows `Done` with a green dot.
-8. If Codex requests approval for file writes, approve or decline from the widget.
+4. Optionally attach a screenshot of the selected UI region before sending the prompt.
+5. Press `Enter` to submit. Press `Shift+Enter` for a newline.
+6. After submit, the widget collapses into a small live status chip unless you click it again.
+7. While Codex runs, the chip streams short status text inline.
+8. When finished, the chip stays compact and shows `Done` with a green dot.
+9. If Codex requests approval for file writes, approve or decline from the widget.
 
 You can create multiple widgets at once by selecting multiple areas. Each widget maintains its own prompt, session state, streamed output, approvals, model choice, and pin position.
+
+## Route-aware widgets
+
+- `CodexGrabProvider` accepts `viewId?: string`.
+- If you do not pass one, `codex-grab` defaults to `pathname + search + hash`.
+- Widgets are persisted in IndexedDB with their `viewId`, so route-local widgets disappear when you navigate away and remount when you return to the same view.
+- When a persisted widget remounts, `codex-grab` re-queries the stored selector and verifies the React component name and source before showing the widget again.
+- If the selector no longer matches the same component, the widget stays persisted but hidden until that target comes back or the user clears saved widgets.
+- Dragged widgets keep their manual page anchor when they remount. Untouched widgets re-anchor beside the selected element.
 
 ## Overlay behavior
 
 - The picker launcher can be dragged between corners.
-- Right-click the launcher to hide the overlay for the current browser session.
+- Right-click the launcher to open the launcher menu.
+- The launcher menu exposes browser-local turn history, clear-saved-widgets, and hide-for-session.
 - Clicking a compact widget expands it.
 - Clicking away clears focus and collapses expanded widgets back into the background.
 - New widgets autofocus once, but they do not permanently steal active focus from other widgets.
@@ -102,6 +130,7 @@ You can create multiple widgets at once by selecting multiple areas. Each widget
 - Idle widgets start in a compact composer state.
 - Running and completed widgets prefer the compact chip form when unfocused.
 - Expanded widgets expose more detail: selection metadata, model selection, reasoning effort, prompt editing, plan updates, reasoning summary, command output, diff view, recent events, theme toggle, and picker shortcut settings.
+- Widgets can optionally capture a screenshot of the selected DOM region and send it to Codex as extra visual context.
 
 ## Models and thinking
 
@@ -131,6 +160,24 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 - Expanded widgets render unified diffs with colored formatting.
 - The diff view is read-only in the current UI.
 
+## History
+
+- Turn history is persisted locally in the browser with IndexedDB.
+- History is scoped to the current browser profile and origin.
+- Reloading the page does not recreate old live widgets, but saved turns remain available from the launcher menu.
+- The history dialog shows prompt, selection, model, status, reasoning summary, command output, diff, approvals, and stored run metadata.
+- History can be cleared manually from the history dialog.
+- If IndexedDB is unavailable, the live widget flow still works and the history view shows a non-blocking unavailable state.
+
+## Widget persistence and refresh restore
+
+- Widget persistence is enabled by default when the provider is enabled, and can be disabled with `persistWidgets={false}`.
+- Persisted widgets are stored locally in IndexedDB alongside turn history.
+- A full page refresh restores widgets for the current view from IndexedDB.
+- Running widgets try to resume their bridge session automatically after refresh.
+- The bridge keeps disconnected sessions resumable for 10 minutes. After that TTL, restored widgets keep their last known output but the old run is marked as no longer resumable.
+- Clearing saved widgets removes persisted live widget state without deleting turn history.
+
 ## Bridge protocol
 
 Browser requests:
@@ -155,6 +202,11 @@ Browser events:
 - `turn.failed`
 - `turn.cancelled`
 
+Protocol notes:
+
+- `session.ping` accepts optional `resumeSessionId`
+- `session.started` includes `resumed: boolean`
+
 ## Notes
 
 - `codex-grab` is development-only and should not be mounted in production.
@@ -162,3 +214,4 @@ Browser events:
 - The current provider is Codex app-server only.
 - Live UI updates depend on your app's normal HMR / Fast Refresh behavior after approved edits are written.
 - Non-React DOM nodes are treated as unsupported selections.
+- `demo-vite` now includes a routed example using `react-router-dom` to show view-aware widget persistence and refresh restore behavior.

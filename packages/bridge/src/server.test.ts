@@ -12,6 +12,11 @@ const waitForClose = (socket: WebSocket) =>
     socket.once("close", (code) => resolve(code));
   });
 
+const waitForMessage = (socket: WebSocket) =>
+  new Promise<unknown>((resolve) => {
+    socket.once("message", (raw) => resolve(JSON.parse(String(raw))));
+  });
+
 describe("CodexGrabBridgeServer security", () => {
   it("rejects non-local binding configuration", () => {
     expect(
@@ -70,6 +75,68 @@ describe("CodexGrabBridgeServer security", () => {
     const closePromise = waitForClose(badToken);
     badToken.send(JSON.stringify({ type: "session.ping", token: "wrong" }));
     await expect(closePromise).resolves.toBe(1008);
+
+    await server.close();
+  });
+
+  it("reuses resumable sessions and expires them after the ttl", async () => {
+    const provider = {
+      getCodexVersion: () => "0.108.0",
+      listModels: async () => [],
+      submitPrompt: async () => undefined,
+      respondToApproval: async () => undefined,
+      interrupt: async () => undefined,
+      revertDiff: async () => undefined,
+      closeSession: vi.fn(async () => undefined),
+      dispose: async () => undefined
+    };
+
+    const server = new CodexGrabBridgeServer({
+      port: 4324,
+      cwd: "/repo",
+      token: "secret",
+      allowedOrigins: ["http://127.0.0.1:5173"],
+      provider,
+      sessionTtlMs: 20
+    });
+
+    const initial = new WebSocket(server.address, {
+      headers: { Origin: "http://127.0.0.1:5173" }
+    });
+    await waitForOpen(initial);
+    const initialMessage = waitForMessage(initial);
+    initial.send(JSON.stringify({ type: "session.ping", token: "secret" }));
+    const started = (await initialMessage) as { sessionId: string; resumed: boolean };
+    expect(started).toEqual(expect.objectContaining({ resumed: false }));
+
+    initial.close();
+    await waitForClose(initial);
+    expect(provider.closeSession).not.toHaveBeenCalled();
+
+    const resumed = new WebSocket(server.address, {
+      headers: { Origin: "http://127.0.0.1:5173" }
+    });
+    await waitForOpen(resumed);
+    const resumedMessage = waitForMessage(resumed);
+    resumed.send(
+      JSON.stringify({
+        type: "session.ping",
+        token: "secret",
+        resumeSessionId: started.sessionId
+      }),
+    );
+    const resumedStarted = (await resumedMessage) as { sessionId: string; resumed: boolean };
+    expect(resumedStarted).toEqual(
+      expect.objectContaining({
+        sessionId: started.sessionId,
+        resumed: true
+      }),
+    );
+
+    resumed.close();
+    await waitForClose(resumed);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(provider.closeSession).toHaveBeenCalledWith(started.sessionId);
 
     await server.close();
   });

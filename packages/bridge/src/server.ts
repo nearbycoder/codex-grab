@@ -15,6 +15,7 @@ export interface BridgeServerOptions {
   token: string;
   allowedOrigins: string[];
   provider: AgentProvider;
+  sessionTtlMs?: number;
 }
 
 interface ClientSession {
@@ -22,12 +23,16 @@ interface ClientSession {
   authenticated: boolean;
 }
 
+const SESSION_TTL_MS = 10 * 60 * 1000;
+
 const isLocalHost = (host: string): boolean => host === "127.0.0.1" || host === "localhost";
 
 export class CodexGrabBridgeServer {
   private readonly server: WebSocketServer;
 
   private readonly clientSessions = new WeakMap<WebSocket, ClientSession>();
+
+  private readonly sessionExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly options: BridgeServerOptions) {
     const host = options.host ?? "127.0.0.1";
@@ -59,8 +64,8 @@ export class CodexGrabBridgeServer {
       });
       socket.on("close", () => {
         const session = this.clientSessions.get(socket);
-        if (session) {
-          void this.options.provider.closeSession(session.sessionId);
+        if (session?.authenticated) {
+          this.scheduleSessionExpiry(session.sessionId);
         }
       });
     });
@@ -71,6 +76,10 @@ export class CodexGrabBridgeServer {
   }
 
   async close(): Promise<void> {
+    for (const timer of this.sessionExpiryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.sessionExpiryTimers.clear();
     for (const client of this.server.clients) {
       client.close();
     }
@@ -115,12 +124,23 @@ export class CodexGrabBridgeServer {
         return;
       }
 
+      const resumedSessionId =
+        message.resumeSessionId && this.sessionExpiryTimers.has(message.resumeSessionId)
+          ? message.resumeSessionId
+          : null;
+
+      if (resumedSessionId) {
+        this.cancelSessionExpiry(resumedSessionId);
+        session.sessionId = resumedSessionId;
+      }
+
       session.authenticated = true;
       const models = await this.options.provider.listModels();
       const defaultModel = models.find((model) => model.isDefault) ?? models[0] ?? null;
       this.send(session.sessionId, {
         event: "session.started",
         sessionId: session.sessionId,
+        resumed: Boolean(resumedSessionId),
         bridgeVersion: BRIDGE_VERSION,
         codexVersion: this.options.provider.getCodexVersion(),
         cwd: this.options.cwd,
@@ -176,5 +196,24 @@ export class CodexGrabBridgeServer {
       default:
         break;
     }
+  }
+
+  private scheduleSessionExpiry(sessionId: string) {
+    this.cancelSessionExpiry(sessionId);
+    const timer = setTimeout(() => {
+      this.sessionExpiryTimers.delete(sessionId);
+      void this.options.provider.closeSession(sessionId);
+    }, this.options.sessionTtlMs ?? SESSION_TTL_MS);
+    this.sessionExpiryTimers.set(sessionId, timer);
+  }
+
+  private cancelSessionExpiry(sessionId: string) {
+    const timer = this.sessionExpiryTimers.get(sessionId);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    this.sessionExpiryTimers.delete(sessionId);
   }
 }

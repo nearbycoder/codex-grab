@@ -3,6 +3,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { createPortal } from "react-dom";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import type { CodexReasoningEffort } from "@codex-grab/core";
 import { useCodexGrab, type GrabWidget } from "./context.js";
+import type { GrabTurnHistoryRecord } from "./history-types.js";
 
 type OverlayTheme = "dark" | "light";
 type LauncherCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -174,7 +176,7 @@ const headerMenuStyle: CSSProperties = {
 
 const launcherContextMenuStyle: CSSProperties = {
   position: "fixed",
-  width: 196,
+  width: 220,
   padding: 6,
   borderRadius: 14,
   zIndex: 2_147_483_101
@@ -212,6 +214,45 @@ const shortcutDialogStyle: CSSProperties = {
   padding: 14,
   borderRadius: 16,
   boxSizing: "border-box"
+};
+
+const historyDialogOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 2_147_483_102,
+  display: "grid",
+  placeItems: "center",
+  padding: 16,
+  background: "rgba(15, 23, 42, 0.16)"
+};
+
+const historyDialogStyle: CSSProperties = {
+  width: "min(960px, calc(100vw - 32px))",
+  height: "min(720px, calc(100vh - 32px))",
+  display: "grid",
+  gridTemplateRows: "auto 1fr",
+  borderRadius: 20,
+  overflow: "hidden",
+  boxSizing: "border-box"
+};
+
+const historyBodyStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "320px minmax(0, 1fr)",
+  minHeight: 0
+};
+
+const historySidebarStyle: CSSProperties = {
+  minHeight: 0,
+  overflowY: "auto",
+  borderRight: "1px solid rgba(15, 23, 42, 0.08)",
+  padding: 12
+};
+
+const historyDetailStyle: CSSProperties = {
+  minHeight: 0,
+  overflowY: "auto",
+  padding: 16
 };
 
 const infoBubbleStyle: CSSProperties = {
@@ -966,8 +1007,38 @@ const getCollapsedStatusText = (widget: GrabWidget): string => {
   return getWidgetStatusCopy(widget);
 };
 
+const formatHistoryTimestamp = (timestamp: number | null): string => {
+  if (!timestamp) {
+    return "Pending";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(timestamp);
+};
+
+const getHistoryStatusColor = (
+  record: GrabTurnHistoryRecord,
+  themeStyles: OverlayThemeStyles,
+): string => {
+  if (record.status === "completed") {
+    return themeStyles.successDotColor;
+  }
+
+  if (record.status === "failed" || record.status === "cancelled") {
+    return "#ef4444";
+  }
+
+  return themeStyles.statusDotColor;
+};
+
 const shouldAllowSubmit = (widget: GrabWidget): boolean =>
-  widget.connectionStatus === "connected" && widget.prompt.trim().length > 0;
+  widget.connectionStatus === "connected" &&
+  widget.prompt.trim().length > 0 &&
+  !widget.isCapturingScreenshot;
 
 const CrosshairIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1038,6 +1109,19 @@ const SendIcon = () => (
   </svg>
 );
 
+const CameraIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M8 6.5L9.3 5H14.7L16 6.5H18.5A2.5 2.5 0 0 1 21 9V16A2.5 2.5 0 0 1 18.5 18.5H5.5A2.5 2.5 0 0 1 3 16V9A2.5 2.5 0 0 1 5.5 6.5H8Z"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <circle cx="12" cy="12.5" r="3.2" stroke="currentColor" strokeWidth="1.8" />
+  </svg>
+);
+
 const ChevronDownIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
@@ -1100,6 +1184,18 @@ const SunIcon = () => (
   </svg>
 );
 
+const HistoryIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M12 8V12L14.5 14.5M21 12A9 9 0 1 1 18.36 5.64M21 4V9H16"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 const WidgetPanel = ({
   widget,
   focused,
@@ -1132,6 +1228,8 @@ const WidgetPanel = ({
     updatePrompt,
     updateModel,
     updateEffort,
+    toggleScreenshot,
+    refreshScreenshot,
     submitPrompt,
     approve,
     decline,
@@ -1142,6 +1240,8 @@ const WidgetPanel = ({
   } = useCodexGrab();
   const selectedModel =
     widget.availableModels.find((model) => model.model === widget.selectedModel) ?? null;
+  const selectionSnapshot = widget.serializedSelection;
+  const screenshot = selectionSnapshot.screenshot ?? null;
   const effortOptions = selectedModel?.supportedReasoningEfforts ?? [];
   const compact =
     (widget.turnStatus === "running" ||
@@ -1326,7 +1426,7 @@ const WidgetPanel = ({
     };
   }, [menuOpen, openPicker, shortcutDialogOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if ((!focused && !autoFocus) || widget.turnStatus !== "idle") {
       return;
     }
@@ -1336,22 +1436,22 @@ const WidgetPanel = ({
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      promptElement.focus();
-      const length = promptElement.value.length;
-      promptElement.setSelectionRange(length, length);
-      setFocusedPrompt(expanded ? "expanded" : "compact");
-      if (autoFocus) {
-        onAutoFocusConsumed(widget.id);
-      }
-    });
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
 
-    return () => window.cancelAnimationFrame(frame);
+    promptElement.focus();
+    const length = promptElement.value.length;
+    promptElement.setSelectionRange(length, length);
+    setFocusedPrompt(expanded ? "expanded" : "compact");
+    if (autoFocus) {
+      onAutoFocusConsumed(widget.id);
+    }
   }, [autoFocus, expanded, focused, onAutoFocusConsumed, widget.id, widget.turnStatus]);
 
   const handleSubmit = () => {
     setOpenPicker(null);
-    submitPrompt(widget.id);
+    void submitPrompt(widget.id);
     onFocus(null);
   };
 
@@ -1393,7 +1493,7 @@ const WidgetPanel = ({
           />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, ...wrapTextStyle }}>
-              {widget.selection.componentName ?? "Unknown component"}
+              {selectionSnapshot.componentName ?? "Unknown component"}
             </div>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
@@ -1444,7 +1544,7 @@ const WidgetPanel = ({
           style={{ ...wrapTextStyle, flex: 1, cursor: "grab", touchAction: "none" }}
           onPointerDown={(event) => startDragging(event, "panel")}
         >
-          <strong>{widget.selection.componentName ?? "Unknown component"}</strong>
+          <strong>{selectionSnapshot.componentName ?? "Unknown component"}</strong>
           <div style={{ ...themeStyles.mutedText, marginTop: 4 }}>
             {widget.connectionStatus === "connected"
               ? widget.turnStatus === "running"
@@ -1718,11 +1818,11 @@ const WidgetPanel = ({
           <section style={{ ...sectionStyle, ...themeStyles.section }}>
             <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Selection</div>
             <div style={wrapTextStyle}>
-              <strong>{widget.selection.componentName ?? "Unknown component"}</strong>
+              <strong>{selectionSnapshot.componentName ?? "Unknown component"}</strong>
             </div>
-            <div style={wrapTextStyle}>{widget.selection.selector ?? "No selector"}</div>
+            <div style={wrapTextStyle}>{selectionSnapshot.selector ?? "No selector"}</div>
             <div style={{ ...wrapTextStyle, ...themeStyles.mutedText, marginTop: 6 }}>
-              {widget.selection.source?.fileName ?? "No source location"}
+              {selectionSnapshot.source?.fileName ?? "No source location"}
             </div>
           </section>
 
@@ -1775,6 +1875,73 @@ const WidgetPanel = ({
                 {selectedModel.description}
               </div>
             ) : null}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={{
+                  ...secondaryButtonStyle,
+                  ...themeStyles.secondaryButton,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  ...(widget.includeScreenshot
+                    ? {
+                        background: themeStyles.infoBubble.background,
+                        borderColor: "rgba(148, 163, 184, 0.35)"
+                      }
+                    : null)
+                }}
+                onClick={() => void toggleScreenshot(widget.id)}
+                disabled={widget.isCapturingScreenshot}
+              >
+                <CameraIcon />
+                {widget.includeScreenshot ? "Remove screenshot" : "Include screenshot"}
+              </button>
+              {widget.includeScreenshot && screenshot ? (
+                <button
+                  type="button"
+                  style={{ ...secondaryButtonStyle, ...themeStyles.secondaryButton }}
+                  onClick={() => void refreshScreenshot(widget.id)}
+                  disabled={widget.isCapturingScreenshot}
+                >
+                  Retake
+                </button>
+              ) : null}
+              <div style={{ ...themeStyles.softText, ...wrapTextStyle }}>
+                {widget.isCapturingScreenshot
+                  ? "Capturing screenshot…"
+                  : widget.includeScreenshot && screenshot
+                    ? `${screenshot.width}×${screenshot.height} attached`
+                    : "Optional visual context for Codex."}
+              </div>
+            </div>
+            {widget.includeScreenshot && screenshot ? (
+              <div
+                style={{
+                  ...cardStyle,
+                  ...themeStyles.card,
+                  marginBottom: 8,
+                  padding: 8
+                }}
+              >
+                <img
+                  src={screenshot.dataUrl}
+                  alt="Selected UI screenshot"
+                  style={{
+                    width: "100%",
+                    maxHeight: 180,
+                    objectFit: "contain",
+                    display: "block",
+                    borderRadius: 10
+                  }}
+                />
+              </div>
+            ) : null}
+            {widget.screenshotError ? (
+              <div style={{ color: "#fca5a5", marginBottom: 8, ...wrapTextStyle }}>
+                {widget.screenshotError}
+              </div>
+            ) : null}
             <textarea
               ref={expandedPromptRef}
               value={widget.prompt}
@@ -1808,9 +1975,7 @@ const WidgetPanel = ({
               <button
                 type="button"
                 style={{ ...buttonStyle, ...themeStyles.primaryButton, flex: 1 }}
-                disabled={
-                  widget.connectionStatus !== "connected" || !widget.prompt.trim()
-                }
+                disabled={!canSubmit}
                 onClick={handleSubmit}
               >
                 Send To Codex
@@ -1956,6 +2121,31 @@ const WidgetPanel = ({
                 }}
                 ref={pickerRootRef}
               >
+                <button
+                  type="button"
+                  style={{
+                    ...iconButtonStyle,
+                    ...themeStyles.iconButton,
+                    ...(widget.includeScreenshot
+                      ? {
+                          background: themeStyles.infoBubble.background,
+                          borderColor: "rgba(148, 163, 184, 0.35)"
+                        }
+                      : null)
+                  }}
+                  onClick={() => void toggleScreenshot(widget.id)}
+                  aria-label={widget.includeScreenshot ? "Remove screenshot" : "Include screenshot"}
+                  title={
+                    widget.isCapturingScreenshot
+                      ? "Capturing screenshot…"
+                      : widget.includeScreenshot
+                        ? "Remove screenshot"
+                        : "Include screenshot"
+                  }
+                  disabled={widget.isCapturingScreenshot}
+                >
+                  <CameraIcon />
+                </button>
                 <div style={{ position: "relative" }}>
                   <button
                     ref={modelButtonRef}
@@ -2030,6 +2220,33 @@ const WidgetPanel = ({
                   <SendIcon />
                 </button>
               </div>
+              {widget.includeScreenshot && screenshot ? (
+                <div
+                  style={{
+                    ...cardStyle,
+                    ...themeStyles.card,
+                    marginTop: 8,
+                    padding: 8
+                  }}
+                >
+                  <img
+                    src={screenshot.dataUrl}
+                    alt="Selected UI screenshot"
+                    style={{
+                      width: "100%",
+                      maxHeight: 110,
+                      objectFit: "contain",
+                      display: "block",
+                      borderRadius: 10
+                    }}
+                  />
+                </div>
+              ) : null}
+              {widget.screenshotError ? (
+                <div style={{ color: "#fca5a5", marginTop: 8, ...wrapTextStyle }}>
+                  {widget.screenshotError}
+                </div>
+              ) : null}
             </section>
           ) : (
             <section
@@ -2201,6 +2418,333 @@ const WidgetPanel = ({
   );
 };
 
+const HistoryDialog = ({
+  history,
+  historyStatus,
+  historyError,
+  selectedHistoryId,
+  onSelectHistory,
+  onClose,
+  onClear,
+  isClearing,
+  theme,
+  themeStyles
+}: {
+  history: GrabTurnHistoryRecord[];
+  historyStatus: "idle" | "loading" | "ready" | "error";
+  historyError: string | null;
+  selectedHistoryId: string | null;
+  onSelectHistory(historyId: string): void;
+  onClose(): void;
+  onClear(): void;
+  isClearing: boolean;
+  theme: OverlayTheme;
+  themeStyles: OverlayThemeStyles;
+}) => {
+  const selectedRecord =
+    history.find((record) => record.id === selectedHistoryId) ?? history[0] ?? null;
+
+  return (
+    <div
+      style={historyDialogOverlayStyle}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      data-codex-grab-overlay="true"
+    >
+      <div
+        style={{
+          ...historyDialogStyle,
+          ...themeStyles.widget,
+          boxShadow: "0 32px 92px rgba(0, 0, 0, 0.36)"
+        }}
+        data-codex-grab-overlay="true"
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: 16,
+            borderBottom: themeStyles.section.borderTop
+          }}
+        >
+          <div>
+            <strong>History</strong>
+            <div style={{ ...themeStyles.softText, marginTop: 4 }}>
+              Saved browser history of Codex turns for this origin.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              style={{ ...secondaryButtonStyle, ...themeStyles.secondaryButton }}
+              onClick={onClear}
+              disabled={isClearing || history.length === 0}
+            >
+              {isClearing ? "Clearing..." : "Clear history"}
+            </button>
+            <button
+              type="button"
+              style={{ ...iconButtonStyle, ...themeStyles.iconButton }}
+              onClick={onClose}
+              aria-label="Close history"
+              title="Close"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+
+        <div style={historyBodyStyle}>
+          <div style={historySidebarStyle}>
+            {historyStatus === "loading" ? (
+              <div style={themeStyles.softText}>Loading history…</div>
+            ) : null}
+            {historyStatus === "error" ? (
+              <div style={themeStyles.softText}>
+                {historyError ?? "History is unavailable in this browser."}
+              </div>
+            ) : null}
+            {historyStatus !== "loading" && historyStatus !== "error" && history.length === 0 ? (
+              <div style={themeStyles.softText}>No saved turns yet.</div>
+            ) : null}
+            {historyStatus === "ready"
+              ? history.map((record) => (
+                  <button
+                    key={record.id}
+                    type="button"
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      border: "none",
+                      background:
+                        selectedRecord?.id === record.id
+                          ? themeStyles.infoBubble.background
+                          : "transparent",
+                      color: "inherit",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      marginBottom: 8
+                    }}
+                    onClick={() => onSelectHistory(record.id)}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8
+                      }}
+                    >
+                      <strong style={{ ...wrapTextStyle, flex: 1 }}>
+                        {record.selection.componentName ?? "Unknown component"}
+                      </strong>
+                      <span
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: 999,
+                          background: getHistoryStatusColor(record, themeStyles),
+                          flexShrink: 0
+                        }}
+                      />
+                    </div>
+                    <div style={{ ...themeStyles.softText, marginTop: 4, ...wrapTextStyle }}>
+                      {record.prompt || "No prompt"}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        marginTop: 6,
+                        ...themeStyles.mutedText
+                      }}
+                    >
+                      <span style={{ ...wrapTextStyle, flex: 1 }}>
+                        {record.model ?? "No model"}{record.effort ? ` · ${record.effort}` : ""}
+                      </span>
+                      <span style={{ flexShrink: 0 }}>{formatHistoryTimestamp(record.updatedAt)}</span>
+                    </div>
+                  </button>
+                ))
+              : null}
+          </div>
+
+          <div style={historyDetailStyle}>
+            {!selectedRecord && historyStatus === "ready" ? (
+              <div style={themeStyles.softText}>Select a saved turn to inspect it.</div>
+            ) : null}
+            {selectedRecord ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: getHistoryStatusColor(selectedRecord, themeStyles),
+                      flexShrink: 0
+                    }}
+                  />
+                  <strong>{selectedRecord.selection.componentName ?? "Unknown component"}</strong>
+                  <span style={themeStyles.softText}>{selectedRecord.status}</span>
+                </div>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Prompt</div>
+                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                    {selectedRecord.prompt}
+                  </pre>
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Selection</div>
+                  <div style={wrapTextStyle}>
+                    <strong>{selectedRecord.selection.componentName ?? "Unknown component"}</strong>
+                  </div>
+                  <div style={wrapTextStyle}>{selectedRecord.selection.selector ?? "No selector"}</div>
+                  <div style={{ ...wrapTextStyle, ...themeStyles.softText, marginTop: 6 }}>
+                    {selectedRecord.selection.source?.fileName ?? "No source location"}
+                  </div>
+                  {selectedRecord.selection.screenshot ? (
+                    <div
+                      style={{
+                        ...cardStyle,
+                        ...themeStyles.card,
+                        marginTop: 10,
+                        padding: 8
+                      }}
+                    >
+                      <img
+                        src={selectedRecord.selection.screenshot.dataUrl}
+                        alt="Saved UI screenshot"
+                        style={{
+                          width: "100%",
+                          maxHeight: 180,
+                          objectFit: "contain",
+                          display: "block",
+                          borderRadius: 10
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Run details</div>
+                  <div style={{ ...themeStyles.softText, ...wrapTextStyle }}>
+                    {selectedRecord.model ?? "No model"}
+                    {selectedRecord.effort ? ` · ${selectedRecord.effort}` : ""}
+                    {" · "}
+                    {formatHistoryTimestamp(selectedRecord.createdAt)}
+                  </div>
+                  <div style={{ ...themeStyles.softText, ...wrapTextStyle, marginTop: 4 }}>
+                    {selectedRecord.cwd ?? "No cwd"}
+                  </div>
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Plan</div>
+                  {selectedRecord.planExplanation ? (
+                    <div style={{ marginBottom: 8 }}>{selectedRecord.planExplanation}</div>
+                  ) : null}
+                  {selectedRecord.plan.length ? (
+                    <ul style={{ paddingLeft: 18, margin: 0 }}>
+                      {selectedRecord.plan.map((step) => (
+                        <li key={`${selectedRecord.id}:${step.step}`}>
+                          {step.status}: {step.step}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={themeStyles.softText}>No plan updates recorded.</div>
+                  )}
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Reasoning summary</div>
+                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                    {selectedRecord.reasoningSummary || "No reasoning summary recorded."}
+                  </pre>
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>
+                    Command / file activity
+                  </div>
+                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                    {selectedRecord.commandOutput || "No command output recorded."}
+                  </pre>
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Current diff</div>
+                  {selectedRecord.diff ? (
+                    <div style={diffViewerStyle}>
+                      <PatchDiff
+                        patch={selectedRecord.diff}
+                        options={{
+                          theme: theme === "dark" ? "pierre-dark" : "pierre-light",
+                          themeType: theme,
+                          diffStyle: "unified",
+                          diffIndicators: "bars",
+                          lineDiffType: "word",
+                          overflow: "wrap",
+                          disableLineNumbers: true
+                        }}
+                        style={{
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 11.5
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                      No diff recorded.
+                    </pre>
+                  )}
+                </section>
+
+                <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Approvals</div>
+                  {selectedRecord.approvals.length ? (
+                    <ul style={{ paddingLeft: 18, margin: 0 }}>
+                      {selectedRecord.approvals.map((approval) => (
+                        <li key={`${selectedRecord.id}:${approval.requestId}`}>
+                          {approval.kind}
+                          {approval.reason ? ` - ${approval.reason}` : ""}
+                          {approval.decision ? ` (${approval.decision})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={themeStyles.softText}>No approvals recorded.</div>
+                  )}
+                </section>
+
+                {selectedRecord.errorMessage ? (
+                  <section style={{ ...sectionStyle, ...themeStyles.section }}>
+                    <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Error</div>
+                    <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                      {selectedRecord.errorMessage}
+                    </pre>
+                  </section>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const CodexGrabOverlay = () => {
   const {
     widgets,
@@ -2208,7 +2752,15 @@ export const CodexGrabOverlay = () => {
     unsupportedMessage,
     startSelection,
     cancelSelection,
-    collapseAllWidgets
+    collapseAllWidgets,
+    history,
+    historyStatus,
+    historyError,
+    isHistoryOpen,
+    openHistory,
+    closeHistory,
+    clearHistory,
+    clearPersistedWidgets
   } = useCodexGrab();
   const [activeWidgetId, setActiveWidgetId] = useState<string | null>(null);
   const [autoFocusWidgetId, setAutoFocusWidgetId] = useState<string | null>(null);
@@ -2221,6 +2773,8 @@ export const CodexGrabOverlay = () => {
   const [launcherDragPosition, setLauncherDragPosition] = useState<{ left: number; top: number } | null>(null);
   const [launcherContextMenu, setLauncherContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
   const shortcutLabel = useMemo(() => shortcutToLabel(shortcut), [shortcut]);
   const themeStyles = useMemo(() => getThemeStyles(theme), [theme]);
   const launcherContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -2249,6 +2803,7 @@ export const CodexGrabOverlay = () => {
 
     const newlyAddedWidget = widgets.find((widget) => !previousIds.includes(widget.id));
     if (newlyAddedWidget) {
+      setActiveWidgetId(null);
       setAutoFocusWidgetId(newlyAddedWidget.id);
       return;
     }
@@ -2261,6 +2816,21 @@ export const CodexGrabOverlay = () => {
       setActiveWidgetId(null);
     }
   }, [activeWidgetId, widgets]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) {
+      return;
+    }
+
+    if (!history.length) {
+      setSelectedHistoryId(null);
+      return;
+    }
+
+    if (!selectedHistoryId || !history.some((record) => record.id === selectedHistoryId)) {
+      setSelectedHistoryId(history[0]?.id ?? null);
+    }
+  }, [history, isHistoryOpen, selectedHistoryId]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -2472,8 +3042,8 @@ export const CodexGrabOverlay = () => {
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            const menuWidth = 196;
-            const menuHeight = 52;
+            const menuWidth = 220;
+            const menuHeight = 132;
             setLauncherContextMenu({
               x: Math.min(Math.max(12, event.clientX - menuWidth + 40), window.innerWidth - menuWidth - 12),
               y: Math.min(Math.max(12, event.clientY - menuHeight - 10), window.innerHeight - menuHeight - 12)
@@ -2503,6 +3073,46 @@ export const CodexGrabOverlay = () => {
             type="button"
             style={{
               ...launcherContextActionStyle,
+              color: themeStyles.widget.color,
+              marginBottom: 4
+            }}
+            onClick={() => {
+              openHistory();
+              setLauncherContextMenu(null);
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <span style={{ display: "grid", placeItems: "center", flexShrink: 0 }}>
+                <HistoryIcon />
+              </span>
+              <span style={{ ...pickerLabelStyle, maxWidth: 120 }}>History</span>
+            </span>
+            <span style={{ ...themeStyles.softText, flexShrink: 0 }}>{history.length}</span>
+          </button>
+          <button
+            type="button"
+            style={{
+              ...launcherContextActionStyle,
+              color: themeStyles.widget.color,
+              marginBottom: 4
+            }}
+            onClick={async () => {
+              await clearPersistedWidgets();
+              setLauncherContextMenu(null);
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <span style={{ display: "grid", placeItems: "center", flexShrink: 0 }}>
+                <CloseIcon />
+              </span>
+              <span style={{ ...pickerLabelStyle, maxWidth: 120 }}>Clear saved widgets</span>
+            </span>
+            <span style={{ ...themeStyles.softText, flexShrink: 0 }}>{widgets.length}</span>
+          </button>
+          <button
+            type="button"
+            style={{
+              ...launcherContextActionStyle,
               color: themeStyles.widget.color
             }}
             onClick={() => {
@@ -2520,6 +3130,26 @@ export const CodexGrabOverlay = () => {
             <span style={{ ...themeStyles.softText, flexShrink: 0 }}>Session</span>
           </button>
         </div>
+      ) : null}
+
+      {isHistoryOpen ? (
+        <HistoryDialog
+          history={history}
+          historyStatus={historyStatus}
+          historyError={historyError}
+          selectedHistoryId={selectedHistoryId}
+          onSelectHistory={setSelectedHistoryId}
+          onClose={closeHistory}
+          onClear={async () => {
+            setIsClearingHistory(true);
+            await clearHistory();
+            setSelectedHistoryId(null);
+            setIsClearingHistory(false);
+          }}
+          isClearing={isClearingHistory}
+          theme={theme}
+          themeStyles={themeStyles}
+        />
       ) : null}
 
       {unsupportedMessage ? (

@@ -1,6 +1,6 @@
 {
   "name": "codex-grab",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -11,6 +11,7 @@
     "build": "npm run build --workspaces --if-present",
     "dev:demo": "npm run dev -w demo-vite",
     "dev:bridge": "npm run dev -w @codex-grab/bridge",
+    "dev:all": "node ./scripts/dev-all.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
