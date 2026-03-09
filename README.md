@@ -21,11 +21,42 @@ Private workspaces:
 - `@codex-grab/demo-shell`
 - `demo-vite`
 
+For normal app integration you usually only need `@codex-grab/react` in your React app and `@codex-grab/bridge` to run the local bridge. `@codex-grab/core` is the lower-level package for custom integrations.
+
 ## Requirements
 
 - Node.js with `npm`
 - Codex CLI with app-server support. The bridge currently enforces `codex-cli >= 0.108.0`.
 - An authenticated Codex session. Run [`codex login`](https://developers.openai.com/codex/) before starting the bridge.
+
+## Install from npm
+
+Install the React package in your app:
+
+```bash
+npm install @codex-grab/react
+```
+
+Run the local bridge with `npx`:
+
+```bash
+npx @codex-grab/bridge dev \
+  --cwd /absolute/path/to/your/react/app \
+  --port 4318 \
+  --token dev-token \
+  --allowed-origin http://127.0.0.1:5173
+```
+
+If you prefer a global install for the bridge CLI:
+
+```bash
+npm install --global @codex-grab/bridge
+codex-grab dev \
+  --cwd /absolute/path/to/your/react/app \
+  --port 4318 \
+  --token dev-token \
+  --allowed-origin http://127.0.0.1:5173
+```
 
 ## Workspace commands
 
@@ -81,17 +112,23 @@ Security note:
 
 ## Quickstart
 
-Start the bridge:
+1. Install `@codex-grab/react` in your app:
 
 ```bash
-node packages/bridge/dist/cli.js dev \
+npm install @codex-grab/react
+```
+
+2. Start the bridge:
+
+```bash
+npx @codex-grab/bridge dev \
   --cwd /absolute/path/to/your/react/app \
   --port 4318 \
   --token dev-token \
   --allowed-origin http://127.0.0.1:5173
 ```
 
-Mount the provider and overlay in your app:
+3. Mount the provider and overlay in your app:
 
 ```tsx
 import { CodexGrabOverlay, CodexGrabProvider } from "@codex-grab/react";
@@ -112,7 +149,9 @@ export function AppShell() {
 }
 ```
 
-Run the demo app:
+4. Start your app normally and open it in the browser.
+
+If you want to run the repo demo instead:
 
 ```bash
 npm run dev -w demo-vite -- --host 127.0.0.1 --port 5173
@@ -158,7 +197,7 @@ You can create multiple widgets at once by selecting multiple areas. Each widget
 - Dragging a widget moves it to a new page position and it stays there while scrolling.
 - Idle widgets start in a compact composer state.
 - Running and completed widgets prefer the compact chip form when unfocused.
-- Expanded widgets expose more detail: selection metadata, model selection, reasoning effort, prompt editing, plan updates, reasoning summary, command output, diff view, recent events, and picker shortcut settings.
+- Expanded widgets expose more detail: selection metadata, model selection, reasoning effort, prompt editing, plan updates, reasoning summary, command output, diff view, and recent events.
 - Widgets can optionally capture a screenshot of the selected DOM region and send it to Codex as extra visual context.
 
 ## Models and thinking
@@ -176,7 +215,7 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 
 - The picker shortcut defaults to `Command + C` on Mac-style keyboards.
 - Shortcut capture ignores typing inside editable inputs and text selection cases.
-- Shortcut settings live inside the expanded widget menu.
+- Shortcut settings live in the launcher right-click menu.
 
 ## Theme
 
