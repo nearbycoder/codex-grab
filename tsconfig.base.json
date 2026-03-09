@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -21,6 +22,20 @@
     ],
     "types": [
       "node"
-    ]
+    ],
+    "paths": {
+      "@codex-grab/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@codex-grab/react": [
+        "./packages/react/src/index.ts"
+      ],
+      "@codex-grab/demo-shell": [
+        "./packages/demo-shell/src/index.ts"
+      ],
+      "@codex-grab/bridge": [
+        "./packages/bridge/src/index.ts"
+      ]
+    }
   }
 }

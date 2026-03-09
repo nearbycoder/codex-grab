@@ -32,8 +32,8 @@ const panelStyle = {
 const heroCardStyle = {
     padding: "32px",
     borderRadius: 30,
-    background: "radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.1), transparent 45%), linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%)",
-    border: "1px solid rgba(15, 23, 42, 0.08)",
+    background: "radial-gradient(circle at 15% 20%, rgba(14, 165, 233, 0.25), transparent 45%), radial-gradient(circle at 85% 10%, rgba(244, 114, 182, 0.25), transparent 50%), linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(219, 234, 254, 0.95))",
+    border: "1px solid rgba(15, 23, 42, 0.06)",
     boxShadow: "0 26px 72px rgba(15, 23, 42, 0.16)"
 };
 const settingsHeroCardStyle = {
@@ -50,9 +50,11 @@ const gridStyle = {
 const featureCardStyle = {
     borderRadius: 28,
     padding: 28,
-    background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(244,247,251,0.94))",
-    border: "1px solid rgba(15, 23, 42, 0.08)",
-    boxShadow: "0 18px 44px rgba(15, 23, 42, 0.12)",
+    background: "radial-gradient(circle at 15% 20%, rgba(14, 165, 233, 0.18), transparent 45%)," +
+        "radial-gradient(circle at 85% 5%, rgba(244, 114, 182, 0.18), transparent 40%)," +
+        "linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(239, 246, 255, 0.92))",
+    border: "1px solid rgba(15, 23, 42, 0.1)",
+    boxShadow: "0 24px 58px rgba(15, 23, 42, 0.16)",
     minHeight: 220,
     display: "flex",
     flexDirection: "column",
