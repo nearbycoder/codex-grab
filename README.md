@@ -10,6 +10,17 @@
 - `@codex-grab/bridge`: localhost WebSocket sidecar that manages `codex app-server` and streams stable browser events.
 - `demo-vite`: reference app for manual testing and Playwright smoke checks.
 
+Published npm packages:
+
+- `@codex-grab/core`
+- `@codex-grab/react`
+- `@codex-grab/bridge`
+
+Private workspaces:
+
+- `@codex-grab/demo-shell`
+- `demo-vite`
+
 ## Requirements
 
 - Node.js with `npm`
@@ -25,6 +36,7 @@ npm install
 npm run build
 npm run check
 npm test
+npm run changeset
 ```
 
 `npm run build` runs the workspace builds in dependency order: `@codex-grab/core`, `@codex-grab/react`, `@codex-grab/demo-shell`, `@codex-grab/bridge`, then `demo-vite`.
@@ -35,6 +47,14 @@ Useful dev commands:
 npm run dev:demo
 npm run dev:bridge
 npm run dev:all
+```
+
+Release commands:
+
+```bash
+npm run changeset
+npm run version-packages
+npm run release
 ```
 
 `@codex-grab/bridge` runs from `dist`, so if you change bridge source and are running the built CLI manually, rebuild before restarting it.
@@ -163,6 +183,39 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 - `codex-grab` ships with dark and light themes.
 - Theme switching is available from the launcher right-click menu.
 - The launcher, widgets, popovers, diff view, compact chips, and history dialog all switch together.
+
+## Publishing
+
+The repo is set up to publish the public `@codex-grab/*` packages with Changesets and GitHub Actions.
+
+What ships to npm:
+
+- `@codex-grab/core`
+- `@codex-grab/react`
+- `@codex-grab/bridge`
+
+What stays private:
+
+- `@codex-grab/demo-shell`
+- `demo-vite`
+
+Local release flow:
+
+1. Run `npm run changeset` and describe the package changes.
+2. Merge the resulting changeset file.
+3. The `Release` GitHub Actions workflow opens or updates a release PR on `main`.
+4. Merge that PR to publish changed packages to npm.
+
+One-time setup:
+
+1. Create the scoped npm packages under the `@codex-grab` organization the first time you publish.
+2. In npm trusted publishing, add this GitHub repository as a trusted publisher for:
+   - `@codex-grab/core`
+   - `@codex-grab/react`
+   - `@codex-grab/bridge`
+3. Keep GitHub Actions enabled for the repository.
+
+The release workflow uses npm trusted publishing with provenance, so you do not need to store a long-lived `NPM_TOKEN` secret after trusted publishing is configured.
 
 ## Diffs
 

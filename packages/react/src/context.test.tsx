@@ -355,8 +355,18 @@ describe("CodexGrabProvider", () => {
     });
     expect(await screen.findByText("Ready")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "More options" }));
-    expect(await screen.findByDisplayValue("gpt-5.3-codex")).toBeTruthy();
-    expect(await screen.findByDisplayValue("medium")).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: "Choose model" })
+          .some((button) => button.textContent?.includes("gpt-5.3-codex")),
+      ).toBe(true);
+      expect(
+        screen
+          .getAllByRole("button", { name: "Choose thinking" })
+          .some((button) => button.textContent?.includes("medium")),
+      ).toBe(true);
+    });
     expect(findSentMessage(MockSocket.instances[0], "session.ping")).toMatchObject({
       type: "session.ping",
       token: "secret"
@@ -960,6 +970,51 @@ describe("CodexGrabProvider", () => {
     expect(screen.getByRole("button", { name: "Select area for codex-grab" })).toBeTruthy();
   });
 
+  it("opens picker shortcut settings from the launcher menu", async () => {
+    const user = userEvent.setup();
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Select area for codex-grab" }), {
+      clientX: 120,
+      clientY: 140
+    });
+
+    const shortcutAction = await screen.findByText("Picker shortcut");
+    await user.click(shortcutAction.closest("button") as HTMLButtonElement);
+
+    expect(await screen.findByText("Trigger select mode without clicking the launcher.")).toBeTruthy();
+    expect(screen.getAllByText("Meta + C").length).toBeGreaterThan(0);
+  });
+
+  it("toggles the launcher menu off on a second right click", async () => {
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    const launcher = screen.getByRole("button", { name: "Select area for codex-grab" });
+
+    fireEvent.contextMenu(launcher, {
+      clientX: 120,
+      clientY: 140
+    });
+    expect(await screen.findByText("History")).toBeTruthy();
+
+    fireEvent.contextMenu(launcher, {
+      clientX: 120,
+      clientY: 140
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("History")).toBeNull();
+    });
+  });
+
   it("clears persisted history from the history dialog", async () => {
     const user = userEvent.setup();
     const firstRender = render(
@@ -1040,5 +1095,104 @@ describe("CodexGrabProvider", () => {
     await waitFor(() => {
       expect(screen.getByText("No saved turns yet.")).toBeTruthy();
     });
+  });
+
+  it("removes an individual history entry from the history dialog", async () => {
+    const user = userEvent.setup();
+    const firstRender = render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    await act(async () => {
+      await selectorState.options?.onSelect(createSelection("RemoveHistoryCard"));
+    });
+
+    await user.type(
+      screen.getByPlaceholderText("Describe the change you want Codex to make."),
+      "Delete just this turn",
+    );
+    await user.click(screen.getByRole("button", { name: "Send To Codex" }));
+
+    act(() => {
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.started",
+            threadId: "thread-remove",
+            turnId: "turn-remove",
+            selection: {
+              componentName: "RemoveHistoryCard",
+              selector: "#removehistorycard",
+              htmlPreview: "<button>RemoveHistoryCard</button>",
+              stackString: "RemoveHistoryCard > Button",
+              stack: [],
+              styles: "display:inline-flex;",
+              source: {
+                fileName: "/tmp/RemoveHistoryCard.tsx",
+                lineNumber: 10,
+                columnNumber: 3
+              },
+              fiberId: 1,
+              isReactComponent: true
+            }
+          })
+        }),
+      );
+      MockSocket.instances[0]?.emit(
+        "message",
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            event: "turn.completed",
+            threadId: "thread-remove",
+            turnId: "turn-remove"
+          })
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Done")).toBeTruthy();
+    });
+    await flushPersistence();
+
+    firstRender.unmount();
+
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await openHistoryFromLauncherMenu(user);
+    await waitFor(() => {
+      expect(screen.queryByText("Loading history…")).toBeNull();
+    });
+
+    expect(screen.getAllByText("Delete just this turn").length).toBeGreaterThan(0);
+    await user.click(
+      screen.getByRole("button", { name: "Remove history entry for RemoveHistoryCard" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No saved turns yet.")).toBeTruthy();
+    });
+
+    document.body.innerHTML = "";
+
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await openHistoryFromLauncherMenu(user);
+    await waitFor(() => {
+      expect(screen.queryByText("Loading history…")).toBeNull();
+    });
+    expect(screen.getByText("No saved turns yet.")).toBeTruthy();
   });
 });

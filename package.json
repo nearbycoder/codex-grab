@@ -9,15 +9,19 @@
   ],
   "scripts": {
     "build": "npm run build -w @codex-grab/core -- --force && npm run build -w @codex-grab/react -- --force && npm run build -w @codex-grab/demo-shell -- --force && npm run build -w @codex-grab/bridge -- --force && npm run build -w demo-vite",
+    "changeset": "changeset",
     "dev:demo": "npm run dev -w demo-vite",
     "dev:bridge": "npm run dev -w @codex-grab/bridge",
     "dev:all": "node ./scripts/dev-all.mjs",
+    "release": "changeset publish",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "tsc -b --pretty false"
+    "check": "tsc -b --pretty false",
+    "version-packages": "changeset version"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "@playwright/test": "^1.54.2",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

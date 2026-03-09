@@ -285,17 +285,18 @@ const launcherFanoutThemeGroupStyle: CSSProperties = {
 };
 
 const shortcutDialogOverlayStyle: CSSProperties = {
-  position: "absolute",
+  position: "fixed",
   inset: 0,
   display: "grid",
   placeItems: "center",
-  zIndex: 7,
-  borderRadius: 18,
-  background: "rgba(0,0,0,0.12)"
+  zIndex: 2_147_483_103,
+  padding: 16,
+  background: "rgba(2, 6, 23, 0.28)",
+  backdropFilter: "blur(10px)"
 };
 
 const shortcutDialogStyle: CSSProperties = {
-  width: "min(280px, calc(100% - 24px))",
+  width: "min(320px, calc(100vw - 32px))",
   padding: 14,
   borderRadius: 16,
   boxSizing: "border-box"
@@ -1516,10 +1517,6 @@ const WidgetPanel = ({
   onFocus,
   onAutoFocusConsumed,
   theme,
-  shortcutLabel,
-  isRecordingShortcut,
-  onStartShortcutRecording,
-  onResetShortcut,
   themeStyles
 }: {
   widget: GrabWidget;
@@ -1528,10 +1525,6 @@ const WidgetPanel = ({
   onFocus(widgetId: string | null): void;
   onAutoFocusConsumed(widgetId: string): void;
   theme: OverlayTheme;
-  shortcutLabel: string;
-  isRecordingShortcut: boolean;
-  onStartShortcutRecording(): void;
-  onResetShortcut(): void;
   themeStyles: OverlayThemeStyles;
 }) => {
   const {
@@ -1573,7 +1566,6 @@ const WidgetPanel = ({
   };
   const [openPicker, setOpenPicker] = useState<"model" | "thinking" | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [shortcutDialogOpen, setShortcutDialogOpen] = useState(false);
   const [focusedPrompt, setFocusedPrompt] = useState<"compact" | "expanded" | null>(null);
   const [pickerPopoverPosition, setPickerPopoverPosition] = useState<Pick<
     CSSProperties,
@@ -1693,7 +1685,7 @@ const WidgetPanel = ({
   }, [openPicker]);
 
   useEffect(() => {
-    if (!openPicker && !menuOpen && !shortcutDialogOpen) {
+    if (!openPicker && !menuOpen) {
       return;
     }
 
@@ -1713,19 +1705,12 @@ const WidgetPanel = ({
         setMenuOpen(false);
       }
 
-      if (
-        shortcutDialogOpen &&
-        !(event.target instanceof Element && event.target.closest("[data-shortcut-dialog='true']"))
-      ) {
-        setShortcutDialogOpen(false);
-      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpenPicker(null);
         setMenuOpen(false);
-        setShortcutDialogOpen(false);
       }
     };
 
@@ -1736,7 +1721,7 @@ const WidgetPanel = ({
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [menuOpen, openPicker, shortcutDialogOpen]);
+  }, [menuOpen, openPicker]);
 
   useLayoutEffect(() => {
     if ((!focused && !autoFocus) || widget.turnStatus !== "idle") {
@@ -1980,83 +1965,6 @@ const WidgetPanel = ({
                 {expanded ? "Collapse" : "Expand"}
               </button>
             ) : null}
-            <button
-              type="button"
-              style={{
-                ...secondaryButtonStyle,
-                ...themeStyles.secondaryButton,
-                width: "100%",
-                justifyContent: "space-between"
-              }}
-              onClick={() => {
-                setShortcutDialogOpen(true);
-                setMenuOpen(false);
-              }}
-            >
-              Picker shortcut
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {expanded && shortcutDialogOpen ? (
-        <div style={shortcutDialogOverlayStyle} data-codex-grab-overlay="true">
-          <div
-            style={{
-              ...shortcutDialogStyle,
-              ...themeStyles.widget,
-              boxShadow: "0 24px 56px rgba(0, 0, 0, 0.24)"
-            }}
-            data-shortcut-dialog="true"
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div>
-                <strong>Picker shortcut</strong>
-                <div style={{ ...themeStyles.softText, marginTop: 4 }}>
-                  Trigger select mode without clicking the launcher.
-                </div>
-              </div>
-              <button
-                type="button"
-                style={{ ...iconButtonStyle, ...themeStyles.iconButton }}
-                onClick={() => setShortcutDialogOpen(false)}
-                aria-label="Close picker shortcut dialog"
-                title="Close"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <div
-              style={{
-                ...cardStyle,
-                ...themeStyles.card,
-                marginTop: 12,
-                padding: "10px 12px",
-                fontWeight: 700
-              }}
-            >
-              {shortcutLabel}
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button
-                type="button"
-                style={{ ...buttonStyle, ...themeStyles.primaryButton, flex: 1 }}
-                onClick={onStartShortcutRecording}
-              >
-                {isRecordingShortcut ? "Press keys..." : "Record shortcut"}
-              </button>
-              <button
-                type="button"
-                style={{ ...secondaryButtonStyle, ...themeStyles.secondaryButton }}
-                onClick={onResetShortcut}
-              >
-                Reset
-              </button>
-            </div>
-            <div style={{ ...themeStyles.softText, marginTop: 10, ...wrapTextStyle }}>
-              Default: {shortcutToLabel(DEFAULT_SHORTCUT)}. Shortcut capture pauses while inputs are
-              focused or text is selected.
-            </div>
           </div>
         </div>
       ) : null}
@@ -2100,37 +2008,64 @@ const WidgetPanel = ({
                   marginBottom: 8
                 }}
               >
-                <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ display: "grid", gap: 6 }}>
                   <span style={themeStyles.mutedText}>Model</span>
-                  <select
-                    value={widget.selectedModel ?? ""}
-                    onChange={(event) => updateModel(widget.id, event.target.value)}
-                    style={{ ...selectStyle, ...themeStyles.select }}
-                  >
-                    {widget.availableModels.map((model) => (
-                      <option key={model.id} value={model.model}>
-                        {model.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span style={themeStyles.mutedText}>Thinking</span>
-                  <select
-                    value={widget.selectedEffort ?? ""}
-                    onChange={(event) =>
-                      updateEffort(widget.id, event.target.value as CodexReasoningEffort)
+                  <button
+                    ref={modelButtonRef}
+                    type="button"
+                    style={{
+                      ...pickerButtonStyle,
+                      ...themeStyles.pickerButton,
+                      ...wrapTextStyle,
+                      width: "100%",
+                      minHeight: 42,
+                      padding: "0 14px",
+                      fontSize: 13
+                    }}
+                    title={modelLabel}
+                    aria-label="Choose model"
+                    aria-haspopup="listbox"
+                    aria-expanded={openPicker === "model"}
+                    onClick={() =>
+                      setOpenPicker((current) => (current === "model" ? null : "model"))
                     }
-                    style={{ ...selectStyle, ...themeStyles.select }}
+                    disabled={!widget.availableModels.length}
+                  >
+                    <span style={{ ...pickerLabelStyle, maxWidth: "100%" }}>{modelLabel}</span>
+                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
+                      <ChevronDownIcon />
+                    </span>
+                  </button>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span style={themeStyles.mutedText}>Thinking</span>
+                  <button
+                    ref={thinkingButtonRef}
+                    type="button"
+                    style={{
+                      ...pickerButtonStyle,
+                      ...themeStyles.pickerButton,
+                      ...wrapTextStyle,
+                      width: "100%",
+                      minHeight: 42,
+                      padding: "0 14px",
+                      fontSize: 13
+                    }}
+                    title={thinkingLabel}
+                    aria-label="Choose thinking"
+                    aria-haspopup="listbox"
+                    aria-expanded={openPicker === "thinking"}
+                    onClick={() =>
+                      setOpenPicker((current) => (current === "thinking" ? null : "thinking"))
+                    }
                     disabled={!effortOptions.length}
                   >
-                    {effortOptions.map((option) => (
-                      <option key={option.effort} value={option.effort}>
-                        {option.effort}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <span style={{ ...pickerLabelStyle, maxWidth: "100%" }}>{thinkingLabel}</span>
+                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
+                      <ChevronDownIcon />
+                    </span>
+                  </button>
+                </div>
               </div>
             ) : null}
             {selectedModel ? (
@@ -2692,7 +2627,9 @@ const HistoryDialog = ({
   onSelectHistory,
   onClose,
   onClear,
+  onRemoveEntry,
   isClearing,
+  removingEntryId,
   theme,
   themeStyles
 }: {
@@ -2703,7 +2640,9 @@ const HistoryDialog = ({
   onSelectHistory(historyId: string): void;
   onClose(): void;
   onClear(): void;
+  onRemoveEntry(historyId: string): void | Promise<void>;
   isClearing: boolean;
+  removingEntryId: string | null;
   theme: OverlayTheme;
   themeStyles: OverlayThemeStyles;
 }) => {
@@ -2885,6 +2824,25 @@ const HistoryDialog = ({
                   >
                     {selectedRecord.status}
                   </span>
+                  <button
+                    type="button"
+                    style={{
+                      ...secondaryButtonStyle,
+                      ...themeStyles.secondaryButton,
+                      minHeight: 34,
+                      padding: "0 14px",
+                      marginLeft: "auto",
+                      display: "inline-flex",
+                      alignItems: "center"
+                    }}
+                    onClick={() => void onRemoveEntry(selectedRecord.id)}
+                    disabled={removingEntryId === selectedRecord.id}
+                    aria-label={`Remove history entry for ${
+                      selectedRecord.selection.componentName ?? "Unknown component"
+                    }`}
+                  >
+                    {removingEntryId === selectedRecord.id ? "Removing..." : "Remove"}
+                  </button>
                 </div>
 
                 <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
@@ -3034,6 +2992,162 @@ const HistoryDialog = ({
   );
 };
 
+const ShortcutDialog = ({
+  shortcutLabel,
+  isRecordingShortcut,
+  onStartShortcutRecording,
+  onResetShortcut,
+  onClose,
+  themeStyles
+}: {
+  shortcutLabel: string;
+  isRecordingShortcut: boolean;
+  onStartShortcutRecording(): void;
+  onResetShortcut(): void;
+  onClose(): void;
+  themeStyles: OverlayThemeStyles;
+}) => (
+  <div
+    style={shortcutDialogOverlayStyle}
+    onPointerDown={(event) => {
+      if (event.target === event.currentTarget) {
+        onClose();
+      }
+    }}
+    data-codex-grab-overlay="true"
+  >
+    <div
+      style={{
+        ...shortcutDialogStyle,
+        ...themeStyles.widget,
+        boxShadow: "0 24px 56px rgba(0, 0, 0, 0.24)"
+      }}
+      data-shortcut-dialog="true"
+      data-codex-grab-overlay="true"
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: themeStyles.softText.color
+            }}
+          >
+            Launcher
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+              fontSize: 28,
+              fontWeight: 650,
+              letterSpacing: "-0.03em",
+              lineHeight: 1
+            }}
+          >
+            Picker shortcut
+          </div>
+          <div
+            style={{
+              ...themeStyles.softText,
+              marginTop: 10,
+              maxWidth: 240,
+              fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+              fontSize: 14,
+              lineHeight: 1.45
+            }}
+          >
+            Trigger select mode without clicking the launcher.
+          </div>
+        </div>
+        <button
+          type="button"
+          style={{
+            ...iconButtonStyle,
+            ...themeStyles.iconButton,
+            width: 40,
+            height: 40,
+            flexShrink: 0
+          }}
+          onClick={onClose}
+          aria-label="Close picker shortcut dialog"
+          title="Close"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+      <div
+        style={{
+          ...cardStyle,
+          ...themeStyles.card,
+          marginTop: 18,
+          padding: "14px 16px",
+          borderRadius: 18,
+          fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+          fontSize: 24,
+          fontWeight: 650,
+          letterSpacing: "-0.03em",
+          lineHeight: 1.1
+        }}
+      >
+        {shortcutLabel}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 16, alignItems: "stretch" }}>
+        <button
+          type="button"
+          style={{
+            ...buttonStyle,
+            ...themeStyles.primaryButton,
+            flex: 1,
+            minHeight: 46,
+            borderRadius: 999,
+            fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+            fontSize: 17,
+            fontWeight: 650,
+            letterSpacing: "-0.02em"
+          }}
+          onClick={onStartShortcutRecording}
+        >
+          {isRecordingShortcut ? "Press keys..." : "Record shortcut"}
+        </button>
+        <button
+          type="button"
+          style={{
+            ...secondaryButtonStyle,
+            ...themeStyles.secondaryButton,
+            minHeight: 46,
+            padding: "0 22px",
+            borderRadius: 999,
+            fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+            fontSize: 16,
+            fontWeight: 600,
+            letterSpacing: "-0.02em"
+          }}
+          onClick={onResetShortcut}
+        >
+          Reset
+        </button>
+      </div>
+      <div
+        style={{
+          ...themeStyles.softText,
+          marginTop: 14,
+          ...wrapTextStyle,
+          fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+          fontSize: 13,
+          lineHeight: 1.5
+        }}
+      >
+        Default: {shortcutToLabel(DEFAULT_SHORTCUT)}. Shortcut capture pauses while inputs are focused
+        or text is selected.
+      </div>
+    </div>
+  </div>
+);
+
 export const CodexGrabOverlay = () => {
   const {
     widgets,
@@ -3049,6 +3163,7 @@ export const CodexGrabOverlay = () => {
     openHistory,
     closeHistory,
     clearHistory,
+    removeHistoryEntry,
     clearPersistedWidgets
   } = useCodexGrab();
   const [activeWidgetId, setActiveWidgetId] = useState<string | null>(null);
@@ -3062,8 +3177,10 @@ export const CodexGrabOverlay = () => {
   const [launcherDragPosition, setLauncherDragPosition] = useState<{ left: number; top: number } | null>(null);
   const [launcherContextMenu, setLauncherContextMenu] = useState<LauncherContextMenuState | null>(null);
   const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
+  const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
+  const [removingHistoryId, setRemovingHistoryId] = useState<string | null>(null);
   const shortcutLabel = useMemo(() => shortcutToLabel(shortcut), [shortcut]);
   const themeStyles = useMemo(() => getThemeStyles(theme), [theme]);
   const previousWidgetIdsRef = useRef<string[]>([]);
@@ -3206,6 +3323,21 @@ export const CodexGrabOverlay = () => {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [cancelSelection, isRecordingShortcut, isSelecting, shortcut, startSelection]);
 
+  useEffect(() => {
+    if (!isShortcutDialogOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isRecordingShortcut) {
+        setIsShortcutDialogOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRecordingShortcut, isShortcutDialogOpen]);
+
   useEffect(
     () => () => {
       const dragState = launcherDragRef.current;
@@ -3222,58 +3354,69 @@ export const CodexGrabOverlay = () => {
 
   const launcherActions = useMemo(
     () => [
-        {
-          id: "theme",
-          kind: "theme" as const,
-          label: "Appearance",
-          description: theme === "dark" ? "Dark mode" : "Light mode",
-          icon: theme === "dark" ? <MoonIcon /> : <SunIcon />,
-          onSelect: () => {
-            const nextTheme = theme === "dark" ? "light" : "dark";
-            setTheme(nextTheme);
-            writeThemePreference(nextTheme);
-          }
-        },
-        {
-          id: "history",
-          kind: "button" as const,
-          label: "History",
-          meta: String(history.length),
-          icon: <HistoryIcon />,
-          onSelect: () => {
-            openHistory();
-            setLauncherContextMenu(null);
-          }
-        },
-        ...(widgets.length > 0
-          ? [
-              {
-                id: "clear",
-                kind: "button" as const,
-                label: "Clear saved widgets",
-                meta: String(widgets.length),
-                icon: <CloseIcon />,
-                onSelect: async () => {
-                  await clearPersistedWidgets();
-                  setLauncherContextMenu(null);
-                }
-              }
-            ]
-          : []),
-        {
-          id: "hide",
-          kind: "button" as const,
-          label: "Hide for this session",
-          meta: "Session",
-          icon: <EyeOffIcon />,
-          onSelect: () => {
-            writeOverlayHiddenCookie(true);
-            setOverlayHidden(true);
-            setLauncherContextMenu(null);
-          }
+      {
+        id: "theme",
+        kind: "theme" as const,
+        label: "Appearance",
+        description: theme === "dark" ? "Dark mode" : "Light mode",
+        icon: theme === "dark" ? <MoonIcon /> : <SunIcon />,
+        onSelect: () => {
+          const nextTheme = theme === "dark" ? "light" : "dark";
+          setTheme(nextTheme);
+          writeThemePreference(nextTheme);
         }
-      ],
-    [clearPersistedWidgets, history.length, openHistory, theme, widgets.length],
+      },
+      {
+        id: "shortcut",
+        kind: "button" as const,
+        label: "Picker shortcut",
+        meta: shortcutLabel,
+        icon: <CrosshairIcon />,
+        onSelect: () => {
+          setIsShortcutDialogOpen(true);
+          setLauncherContextMenu(null);
+        }
+      },
+      {
+        id: "history",
+        kind: "button" as const,
+        label: "History",
+        meta: String(history.length),
+        icon: <HistoryIcon />,
+        onSelect: () => {
+          openHistory();
+          setLauncherContextMenu(null);
+        }
+      },
+      ...(widgets.length > 0
+        ? [
+            {
+              id: "clear",
+              kind: "button" as const,
+              label: "Clear saved widgets",
+              meta: String(widgets.length),
+              icon: <CloseIcon />,
+              onSelect: async () => {
+                await clearPersistedWidgets();
+                setLauncherContextMenu(null);
+              }
+            }
+          ]
+        : []),
+      {
+        id: "hide",
+        kind: "button" as const,
+        label: "Hide for this session",
+        meta: "Session",
+        icon: <EyeOffIcon />,
+        onSelect: () => {
+          writeOverlayHiddenCookie(true);
+          setOverlayHidden(true);
+          setLauncherContextMenu(null);
+        }
+      }
+    ],
+    [clearPersistedWidgets, history.length, openHistory, shortcutLabel, theme, widgets.length],
   );
 
   const launcherFanoutThemeStyles = useMemo(
@@ -3464,7 +3607,12 @@ export const CodexGrabOverlay = () => {
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setLauncherContextMenu(getLauncherContextMenuState(event.currentTarget.getBoundingClientRect()));
+            const launcherRect = event.currentTarget.getBoundingClientRect();
+            setLauncherContextMenu((current) =>
+              current
+                ? null
+                : getLauncherContextMenuState(launcherRect),
+            );
           }}
           aria-label={isSelecting ? "Cancel selection" : "Select area for codex-grab"}
           title={isSelecting ? "Cancel pick" : `Pick area (${shortcutLabel})`}
@@ -3639,7 +3787,31 @@ export const CodexGrabOverlay = () => {
             setIsClearingHistory(false);
           }}
           isClearing={isClearingHistory}
+          onRemoveEntry={async (historyId) => {
+            setRemovingHistoryId(historyId);
+            await removeHistoryEntry(historyId);
+            setRemovingHistoryId((current) => (current === historyId ? null : current));
+          }}
+          removingEntryId={removingHistoryId}
           theme={theme}
+          themeStyles={themeStyles}
+        />
+      ) : null}
+
+      {isShortcutDialogOpen ? (
+        <ShortcutDialog
+          shortcutLabel={shortcutLabel}
+          isRecordingShortcut={isRecordingShortcut}
+          onStartShortcutRecording={() => setIsRecordingShortcut(true)}
+          onResetShortcut={() => {
+            setShortcut(DEFAULT_SHORTCUT);
+            writeShortcutPreference(DEFAULT_SHORTCUT);
+            setIsRecordingShortcut(false);
+          }}
+          onClose={() => {
+            setIsShortcutDialogOpen(false);
+            setIsRecordingShortcut(false);
+          }}
           themeStyles={themeStyles}
         />
       ) : null}
@@ -3675,14 +3847,6 @@ export const CodexGrabOverlay = () => {
               setAutoFocusWidgetId((current) => (current === widgetId ? null : current));
             }}
             theme={theme}
-            shortcutLabel={shortcutLabel}
-            isRecordingShortcut={isRecordingShortcut}
-            onStartShortcutRecording={() => setIsRecordingShortcut(true)}
-            onResetShortcut={() => {
-              setShortcut(DEFAULT_SHORTCUT);
-              writeShortcutPreference(DEFAULT_SHORTCUT);
-              setIsRecordingShortcut(false);
-            }}
             themeStyles={themeStyles}
           />
         ))}

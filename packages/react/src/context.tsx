@@ -124,6 +124,7 @@ export interface CodexGrabActions {
   setWidgetCollapsed(widgetId: string, collapsed: boolean): void;
   collapseAllWidgets(): void;
   clearHistory(): Promise<void>;
+  removeHistoryEntry(historyId: string): Promise<void>;
   clearPersistedWidgets(): Promise<void>;
   openHistory(): void;
   closeHistory(): void;
@@ -1472,6 +1473,41 @@ export const CodexGrabProvider = ({
         } catch (error) {
           setHistoryStatus("error");
           setHistoryError(error instanceof Error ? error.message : "Failed to clear history.");
+        }
+      },
+      async removeHistoryEntry(historyId: string) {
+        let removedWidgetIds: string[] = [];
+
+        setAllWidgets((prev) =>
+          prev.map((widget) => {
+            if (widget.historyEntryId !== historyId) {
+              return widget;
+            }
+
+            removedWidgetIds = [...removedWidgetIds, widget.id];
+            return {
+              ...widget,
+              historyEntryId: null
+            };
+          }),
+        );
+
+        setHistory((prev) => prev.filter((record) => record.id !== historyId));
+        setHistoryError(null);
+        setHistoryStatus((current) => (current === "idle" ? "ready" : current));
+
+        previousHistorySnapshotRef.current = new Map(
+          Array.from(previousHistorySnapshotRef.current.entries()).filter(
+            ([widgetId, snapshot]) =>
+              snapshot.historyEntryId !== historyId && !removedWidgetIds.includes(widgetId),
+          ),
+        );
+
+        try {
+          await getStore().deleteTurn(historyId);
+        } catch (error) {
+          setHistoryStatus("error");
+          setHistoryError(error instanceof Error ? error.message : "Failed to remove history entry.");
         }
       },
       async clearPersistedWidgets() {

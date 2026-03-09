@@ -52,10 +52,17 @@ const panelStyle: CSSProperties = {
 const heroCardStyle: CSSProperties = {
   padding: "32px",
   borderRadius: 30,
-  background:
-    "linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92))",
+  background: "linear-gradient(180deg, #ffa500 0%, #ff8c00 100%)",
   border: "1px solid rgba(15, 23, 42, 0.08)",
   boxShadow: "0 26px 72px rgba(15, 23, 42, 0.16)"
+};
+
+const settingsHeroCardStyle: CSSProperties = {
+  ...heroCardStyle,
+  background:
+    "radial-gradient(120% 135% at 6% 0%, rgba(14, 116, 144, 0.18), transparent 44%), radial-gradient(95% 125% at 94% 8%, rgba(251, 146, 60, 0.16), transparent 48%), linear-gradient(162deg, rgba(255, 255, 255, 0.97), rgba(241, 245, 249, 0.92)), repeating-linear-gradient(130deg, rgba(15, 23, 42, 0.03) 0 2px, transparent 2px 14px)",
+  border: "1px solid rgba(15, 23, 42, 0.1)",
+  boxShadow: "0 28px 72px rgba(15, 23, 42, 0.2)"
 };
 
 const gridStyle: CSSProperties = {
@@ -197,44 +204,50 @@ function RouteLink({
   );
 }
 
+function LandingHeroCard() {
+  return (
+    <section style={heroCardStyle} data-promo-target="landing-hero-card">
+      <div style={{ display: "grid", gap: 20, maxWidth: 760 }}>
+        <div style={{ ...badgeStyle, width: "fit-content" }} data-promo-target="landing-badge">
+          Route A · landing
+        </div>
+        <AccentLine />
+        <h1
+          style={{ margin: 0, fontSize: "clamp(3rem, 7vw, 5.25rem)", lineHeight: 0.92 }}
+          data-promo-target="landing-headline"
+        >
+          Pick a component here, switch routes, then come back and watch the widget return.
+        </h1>
+        <p style={{ margin: 0, fontSize: 20, color: "#334155", lineHeight: 1.55 }}>
+          This route is meant to show element-anchored widgets. Select the headline,
+          CTA, or one of the cards below, navigate to the settings route, and then
+          return to confirm the widget remounts on the settings view.
+        </p>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            data-promo-target="landing-cta"
+            style={{
+              ...buttonStyle,
+              background: "#0f172a",
+              color: "#f8fafc"
+            }}
+          >
+            Route A CTA
+          </button>
+          <span style={{ color: "#475569" }}>
+            Refresh the page here and the current route&apos;s widgets should restore too.
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function LandingView() {
   return (
     <>
-      <section style={heroCardStyle}>
-        <div style={{ display: "grid", gap: 20, maxWidth: 760 }}>
-          <div style={{ ...badgeStyle, width: "fit-content" }} data-promo-target="landing-badge">
-            Route A · landing
-          </div>
-          <AccentLine />
-          <h1
-            style={{ margin: 0, fontSize: "clamp(3rem, 7vw, 5.25rem)", lineHeight: 0.92 }}
-            data-promo-target="landing-headline"
-          >
-            Pick a component here, switch routes, then come back and watch the widget return.
-          </h1>
-          <p style={{ margin: 0, fontSize: 20, color: "#334155", lineHeight: 1.55 }}>
-            This route is meant to show element-anchored widgets. Select the headline,
-            CTA, or one of the cards below, navigate to the settings route, and then
-            return to confirm the widget remounts on the same view.
-          </p>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              data-promo-target="landing-cta"
-              style={{
-                ...buttonStyle,
-                background: "#0f172a",
-                color: "#f8fafc"
-              }}
-            >
-              Route A CTA
-            </button>
-            <span style={{ color: "#475569" }}>
-              Refresh the page here and the current route&apos;s widgets should restore too.
-            </span>
-          </div>
-        </div>
-      </section>
+      <LandingHeroCard />
 
       <section style={gridStyle}>
         <FeatureCard
@@ -266,6 +279,30 @@ function LandingView() {
   );
 }
 
+function SettingsHeroCard() {
+  return (
+    <section style={settingsHeroCardStyle} data-promo-target="settings-hero-card">
+      <div style={{ display: "grid", gap: 20, maxWidth: 780 }}>
+        <div style={{ ...badgeStyle, width: "fit-content" }} data-promo-target="settings-badge">
+          Route B · settings
+        </div>
+        <AccentLine />
+        <h2
+          style={{ margin: 0, fontSize: "clamp(2.4rem, 6vw, 4rem)", lineHeight: 0.98 }}
+          data-promo-target="settings-headline"
+        >
+          A second view with different targets to prove route-aware unmount and remount
+        </h2>
+        <p style={{ margin: 0, fontSize: 19, color: "#334155", lineHeight: 1.6 }}>
+          Create widgets here as well. Route A widgets should disappear while you are on
+          this screen, but background runs can keep streaming through persistence and
+          bridge resume.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function SettingsView() {
   const statusRows = useMemo(
     () => [
@@ -287,25 +324,7 @@ function SettingsView() {
 
   return (
     <>
-      <section style={heroCardStyle}>
-        <div style={{ display: "grid", gap: 20, maxWidth: 780 }}>
-          <div style={{ ...badgeStyle, width: "fit-content" }} data-promo-target="settings-badge">
-            Route B · settings
-          </div>
-          <AccentLine />
-          <h2
-            style={{ margin: 0, fontSize: "clamp(2.4rem, 6vw, 4rem)", lineHeight: 0.98 }}
-            data-promo-target="settings-headline"
-          >
-            A second view with different targets to prove route-aware unmount and remount
-          </h2>
-          <p style={{ margin: 0, fontSize: 19, color: "#334155", lineHeight: 1.6 }}>
-            Create widgets here as well. Route A widgets should disappear while you are on
-            this screen, but background runs can keep streaming through persistence and
-            bridge resume.
-          </p>
-        </div>
-      </section>
+      <SettingsHeroCard />
 
       <section style={gridStyle}>
         {statusRows.map((row, index) => (

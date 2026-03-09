@@ -1,9 +1,26 @@
 {
   "name": "@codex-grab/bridge",
   "version": "0.0.1",
+  "description": "Localhost bridge and CLI for codex-grab Codex app-server sessions.",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nearbycoder/codex-grab.git",
+    "directory": "packages/bridge"
+  },
+  "homepage": "https://github.com/nearbycoder/codex-grab/tree/main/packages/bridge",
+  "bugs": {
+    "url": "https://github.com/nearbycoder/codex-grab/issues"
+  },
+  "keywords": [
+    "codex",
+    "cli",
+    "websocket",
+    "developer-tools"
+  ],
   "bin": {
     "codex-grab": "./dist/cli.js"
   },
@@ -13,6 +30,9 @@
       "default": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist"
   ],
@@ -21,8 +41,11 @@
     "dev": "node --watch ./dist/cli.js",
     "predev": "npm run build"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@codex-grab/core": "file:../core",
+    "@codex-grab/core": "0.0.1",
     "ws": "^8.18.3"
   }
 }

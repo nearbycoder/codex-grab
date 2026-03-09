@@ -8,8 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@codex-grab/demo-shell": "file:../packages/demo-shell",
-    "@codex-grab/react": "file:../packages/react",
+    "@codex-grab/demo-shell": "0.0.1",
+    "@codex-grab/react": "0.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6"
