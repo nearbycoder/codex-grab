@@ -1,6 +1,6 @@
 {
   "name": "@codex-grab/core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Core selection, serialization, and bridge protocol types for codex-grab.",
   "license": "MIT",
   "type": "module",
