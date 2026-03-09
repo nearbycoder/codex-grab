@@ -1,6 +1,6 @@
 {
   "name": "demo-vite",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,8 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@codex-grab/demo-shell": "0.0.1",
-    "@codex-grab/react": "0.0.1",
+    "@codex-grab/demo-shell": "0.0.2",
+    "@codex-grab/react": "0.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6"
