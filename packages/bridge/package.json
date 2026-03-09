@@ -22,7 +22,7 @@
     "developer-tools"
   ],
   "bin": {
-    "codex-grab": "./dist/cli.js"
+    "codex-grab": "dist/cli.js"
   },
   "exports": {
     ".": {
