@@ -7,6 +7,9 @@
   },
   "references": [
     {
+      "path": "../packages/demo-shell"
+    },
+    {
       "path": "../packages/react"
     }
   ],

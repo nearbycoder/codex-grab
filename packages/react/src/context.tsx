@@ -109,6 +109,7 @@ export interface CodexGrabActions {
   startSelection(): void;
   cancelSelection(): void;
   removeWidget(widgetId: string): void;
+  retryConnection(widgetId: string): void;
   updateAnchor(widgetId: string, anchor: { top: number; left: number }): void;
   updatePrompt(widgetId: string, prompt: string): void;
   updateModel(widgetId: string, model: string): void;
@@ -748,6 +749,9 @@ export const CodexGrabProvider = ({
   );
   const previousWidgetSnapshotRef = useRef(new Map<string, string>());
   const previousViewIdRef = useRef(currentViewId);
+  const currentViewIdRef = useRef(currentViewId);
+
+  currentViewIdRef.current = currentViewId;
 
   const getStore = useEffectEvent(() => {
     if (!storeRef.current) {
@@ -828,14 +832,8 @@ export const CodexGrabProvider = ({
       socketsRef.current.delete(widgetId);
       updateWidget(widgetId, (widget) => ({
         ...widget,
-        connectionStatus:
-          widget.turnStatus === "running" && widget.shouldResumeOnConnect
-            ? widget.connectionStatus
-            : "error",
-        connectionError:
-          widget.turnStatus === "running" && widget.shouldResumeOnConnect
-            ? widget.connectionError
-            : widget.connectionError ?? "Bridge connection closed.",
+        connectionStatus: "error",
+        connectionError: widget.connectionError ?? "Bridge connection closed.",
         updatedAt: Date.now()
       }));
     });
@@ -914,7 +912,7 @@ export const CodexGrabProvider = ({
         setIsSelecting(false);
         setUnsupportedMessage(null);
 
-        const widget = createWidgetState(selection, currentViewId, preferredModelRef.current);
+        const widget = createWidgetState(selection, currentViewIdRef.current, preferredModelRef.current);
         updateWidgets((prev) => [...prev, widget]);
         connectWidget(widget.id);
       },
@@ -959,20 +957,44 @@ export const CodexGrabProvider = ({
     }
 
     let cancelled = false;
+    const store = storeRef.current ?? (storeRef.current = createCodexGrabStore());
     setHistoryStatus("loading");
     setHistoryError(null);
 
     Promise.all([
-      getStore().listTurns(),
-      persistWidgets ? getStore().listWidgets() : Promise.resolve([])
+      store.listTurns(),
+      persistWidgets ? store.listWidgets() : Promise.resolve([])
     ])
       .then(([turns, widgetRecords]) => {
         if (cancelled) {
           return;
         }
 
-        setHistory(turns);
-        setAllWidgets(widgetRecords.map((record) => createRestoredWidgetState(record)));
+        setHistory((current) => {
+          if (!current.length) {
+            return turns;
+          }
+
+          return [...current, ...turns]
+            .filter(
+              (record, index, records) =>
+                records.findIndex((candidate) => candidate.id === record.id) === index,
+            )
+            .sort((left, right) => right.updatedAt - left.updatedAt);
+        });
+        setAllWidgets((current) => {
+          const restoredWidgets = widgetRecords.map((record) => createRestoredWidgetState(record));
+          if (!current.length) {
+            return restoredWidgets;
+          }
+
+          return [
+            ...current,
+            ...restoredWidgets.filter(
+              (candidate) => !current.some((widget) => widget.id === candidate.id),
+            )
+          ].sort((left, right) => left.createdAt - right.createdAt);
+        });
         setHistoryStatus("ready");
       })
       .catch((error) => {
@@ -994,7 +1016,7 @@ export const CodexGrabProvider = ({
     return () => {
       cancelled = true;
     };
-  }, [enabled, getStore, persistWidgets]);
+  }, [enabled, persistWidgets]);
 
   useEffect(() => {
     if (!enabled || historyStatus === "error") {
@@ -1057,6 +1079,9 @@ export const CodexGrabProvider = ({
     }
 
     previousViewIdRef.current = currentViewId;
+    selectorRef.current?.destroy();
+    selectorRef.current = null;
+    setIsSelecting(false);
     updateWidgets((prev) =>
       prev.map((widget) =>
         widget.viewId === currentViewId
@@ -1087,7 +1112,11 @@ export const CodexGrabProvider = ({
         continue;
       }
 
-      if (widget.viewId === currentViewId && widget.isAttached) {
+      if (
+        widget.viewId === currentViewId &&
+        widget.isAttached &&
+        widget.connectionStatus === "connecting"
+      ) {
         connectWidget(widget.id);
       }
     }
@@ -1205,6 +1234,16 @@ export const CodexGrabProvider = ({
             await getStore().deleteWidget(widgetId);
           });
         }
+      },
+      retryConnection(widgetId: string) {
+        updateWidget(widgetId, (widget) => ({
+          ...widget,
+          connectionStatus: "connecting",
+          connectionError: null,
+          shouldResumeOnConnect:
+            widget.turnStatus === "running" && Boolean(widget.bridgeSessionId),
+          updatedAt: Date.now()
+        }));
       },
       updateAnchor(widgetId: string, anchor: { top: number; left: number }) {
         updateWidget(widgetId, (widget) => ({
@@ -1417,6 +1456,12 @@ export const CodexGrabProvider = ({
         );
       },
       async clearHistory() {
+        setAllWidgets((prev) =>
+          prev.map((widget) => ({
+            ...widget,
+            historyEntryId: null
+          })),
+        );
         setHistory([]);
         setHistoryError(null);
         setHistoryStatus("ready");

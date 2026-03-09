@@ -8,7 +8,7 @@
     "demo-vite"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @codex-grab/core -- --force && npm run build -w @codex-grab/react -- --force && npm run build -w @codex-grab/demo-shell -- --force && npm run build -w @codex-grab/bridge -- --force && npm run build -w demo-vite",
     "dev:demo": "npm run dev -w demo-vite",
     "dev:bridge": "npm run dev -w @codex-grab/bridge",
     "dev:all": "node ./scripts/dev-all.mjs",

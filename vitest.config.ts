@@ -7,6 +7,8 @@ export default defineConfig({
     include: [
       "packages/**/*.test.ts",
       "packages/**/*.test.tsx",
+      "promo-remotion/**/*.test.ts",
+      "promo-remotion/**/*.test.tsx",
       "test/**/*.test.ts"
     ]
   }

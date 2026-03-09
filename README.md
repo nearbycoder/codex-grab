@@ -6,8 +6,10 @@
 
 - `@codex-grab/core`: DOM selection, React context capture, serialization, and shared bridge message types.
 - `@codex-grab/react`: provider, overlay, pinned widgets, and hooks for mounting the browser UI in a React app.
+- `@codex-grab/demo-shell`: shared routed demo UI used by the manual Vite demo and the promo video workspace.
 - `@codex-grab/bridge`: localhost WebSocket sidecar that manages `codex app-server` and streams stable browser events.
 - `demo-vite`: reference app for manual testing and Playwright smoke checks.
+- `promo-remotion`: scripted Remotion promo workspace that drives the real overlay with deterministic mock bridge events.
 
 ## Requirements
 
@@ -26,11 +28,16 @@ npm run check
 npm test
 ```
 
+`npm run build` runs the workspace builds in dependency order: `@codex-grab/core`, `@codex-grab/react`, `@codex-grab/demo-shell`, `@codex-grab/bridge`, `demo-vite`, then `promo-remotion`.
+
 Useful dev commands:
 
 ```bash
 npm run dev:demo
 npm run dev:bridge
+npm run dev:promo
+npm run stage:promo
+npm run render:promo
 npm run dev:all
 ```
 
@@ -118,7 +125,7 @@ You can create multiple widgets at once by selecting multiple areas. Each widget
 
 - The picker launcher can be dragged between corners.
 - Right-click the launcher to open the launcher menu.
-- The launcher menu exposes browser-local turn history, clear-saved-widgets, and hide-for-session.
+- The launcher menu exposes appearance switching, browser-local turn history, clear-saved-widgets, and hide-for-session.
 - Clicking a compact widget expands it.
 - Clicking away clears focus and collapses expanded widgets back into the background.
 - New widgets autofocus once, but they do not permanently steal active focus from other widgets.
@@ -152,8 +159,16 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 ## Theme
 
 - `codex-grab` ships with dark and light themes.
-- Theme switching is available from the widget menu.
+- Theme switching is available from the launcher right-click menu.
 - The launcher, widgets, popovers, diff view, and compact chips all switch together.
+
+## Promo Video Workspace
+
+- `promo-remotion` uses the real `CodexGrabProvider`, `CodexGrabOverlay`, and shared routed demo shell.
+- The workspace installs a promo-only `WebSocket` shim for `ws://promo-bridge` so the video can replay deterministic bridge events without a live Codex session.
+- `npm run dev:promo` opens Remotion Studio for the scripted promo composition.
+- `npm run stage:promo` opens a Vite staging app with a scrubber for scene iteration outside the final render flow.
+- `npm run render:promo` renders the main promo composition to `promo-remotion/out/codex-grab-promo.mp4`.
 
 ## Diffs
 

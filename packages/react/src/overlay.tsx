@@ -16,6 +16,15 @@ import type { GrabTurnHistoryRecord } from "./history-types.js";
 
 type OverlayTheme = "dark" | "light";
 type LauncherCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+type LauncherMenuDirection = "up" | "down";
+type LauncherMenuHorizontal = "left" | "right";
+
+interface LauncherContextMenuState {
+  anchorX: number;
+  anchorY: number;
+  direction: LauncherMenuDirection;
+  horizontal: LauncherMenuHorizontal;
+}
 
 interface OverlayThemeStyles {
   launcher: CSSProperties;
@@ -174,29 +183,105 @@ const headerMenuStyle: CSSProperties = {
   zIndex: 6
 };
 
-const launcherContextMenuStyle: CSSProperties = {
+const launcherFanoutFieldStyle: CSSProperties = {
   position: "fixed",
-  width: 220,
-  padding: 6,
-  borderRadius: 14,
-  zIndex: 2_147_483_101
+  inset: 0,
+  zIndex: 2_147_483_101,
+  pointerEvents: "none"
 };
 
-const launcherContextActionStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 36,
-  display: "flex",
+const launcherFanoutItemStyle: CSSProperties = {
+  position: "absolute",
+  left: 0,
+  top: 0,
+  pointerEvents: "auto"
+};
+
+const launcherFanoutButtonStyle: CSSProperties = {
+  width: 224,
+  minHeight: 48,
+  display: "grid",
+  gridTemplateColumns: "34px minmax(0, 1fr) auto",
   alignItems: "center",
-  justifyContent: "space-between",
-  gap: 10,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "none",
-  background: "transparent",
-  color: "inherit",
-  font: "inherit",
+  columnGap: 10,
+  padding: "0 12px 0 10px",
+  borderRadius: 18,
+  border: "1px solid rgba(255,255,255,0.1)",
+  background:
+    "linear-gradient(180deg, rgba(20,22,30,0.98), rgba(7,9,15,0.985))",
+  boxShadow: "0 18px 34px rgba(15, 23, 42, 0.18)",
+  backdropFilter: "blur(18px)",
+  color: "#f8fafc",
+  fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+  fontSize: 13,
+  fontWeight: 600,
+  letterSpacing: "-0.01em",
   cursor: "pointer",
+  boxSizing: "border-box",
   textAlign: "left"
+};
+
+const launcherFanoutIconWrapStyle: CSSProperties = {
+  width: 34,
+  height: 34,
+  display: "grid",
+  placeItems: "center",
+  flexShrink: 0,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  boxSizing: "border-box"
+};
+
+const launcherFanoutLabelTextStyle: CSSProperties = {
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  flex: 1,
+  fontSize: 13,
+  fontWeight: 600
+};
+
+const launcherFanoutMetaStyle: CSSProperties = {
+  flexShrink: 0,
+  minWidth: 24,
+  height: 24,
+  display: "inline-grid",
+  placeItems: "center",
+  padding: "0 8px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  boxSizing: "border-box",
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: "0.01em",
+  opacity: 0.82
+};
+
+const launcherFanoutLabelGroupStyle: CSSProperties = {
+  minWidth: 0,
+  display: "grid",
+  gap: 2
+};
+
+const launcherFanoutEyebrowStyle: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  opacity: 0.58
+};
+
+const launcherFanoutThemeGroupStyle: CSSProperties = {
+  position: "relative",
+  width: 62,
+  height: 30,
+  display: "inline-block",
+  borderRadius: 999,
+  overflow: "hidden",
+  flexShrink: 0
 };
 
 const shortcutDialogOverlayStyle: CSSProperties = {
@@ -223,7 +308,9 @@ const historyDialogOverlayStyle: CSSProperties = {
   display: "grid",
   placeItems: "center",
   padding: 16,
-  background: "rgba(15, 23, 42, 0.16)"
+  overscrollBehavior: "contain",
+  background: "rgba(2, 6, 23, 0.34)",
+  backdropFilter: "blur(12px) saturate(1.05)"
 };
 
 const historyDialogStyle: CSSProperties = {
@@ -233,26 +320,158 @@ const historyDialogStyle: CSSProperties = {
   gridTemplateRows: "auto 1fr",
   borderRadius: 20,
   overflow: "hidden",
-  boxSizing: "border-box"
+  boxSizing: "border-box",
+  fontFamily: '"Avenir Next", "Segoe UI", ui-sans-serif, sans-serif',
+  backdropFilter: "blur(24px) saturate(1.06)"
 };
 
 const historyBodyStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "320px minmax(0, 1fr)",
-  minHeight: 0
+  minHeight: 0,
+  overscrollBehavior: "contain",
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.048), rgba(255,255,255,0.02))"
 };
 
 const historySidebarStyle: CSSProperties = {
   minHeight: 0,
   overflowY: "auto",
+  overscrollBehavior: "contain",
   borderRight: "1px solid rgba(15, 23, 42, 0.08)",
-  padding: 12
+  padding: 14,
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.045))"
 };
 
 const historyDetailStyle: CSSProperties = {
   minHeight: 0,
   overflowY: "auto",
-  padding: 16
+  overscrollBehavior: "contain",
+  padding: 22,
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03))"
+};
+
+const historyHeaderTitleStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: '"Iowan Old Style", Georgia, serif',
+  fontSize: 22,
+  fontWeight: 700,
+  letterSpacing: "-0.02em",
+  lineHeight: 1.05
+};
+
+const historyHeaderDescriptionStyle: CSSProperties = {
+  marginTop: 6,
+  maxWidth: 540,
+  fontSize: 13,
+  lineHeight: 1.45
+};
+
+const historySidebarCardStyle: CSSProperties = {
+  width: "100%",
+  textAlign: "left",
+  border: "1px solid transparent",
+  color: "inherit",
+  borderRadius: 16,
+  padding: "14px 14px 13px",
+  cursor: "pointer",
+  marginBottom: 10,
+  transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease",
+  boxSizing: "border-box"
+};
+
+const historySidebarTitleStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
+  fontSize: 13,
+  fontWeight: 700,
+  letterSpacing: "-0.01em",
+  lineHeight: 1.2
+};
+
+const historySidebarPromptStyle: CSSProperties = {
+  marginTop: 7,
+  fontSize: 13,
+  lineHeight: 1.45
+};
+
+const historySidebarMetaRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  marginTop: 10,
+  fontSize: 12,
+  lineHeight: 1.35
+};
+
+const historyDetailHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 4
+};
+
+const historyDetailTitleStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: '"Iowan Old Style", Georgia, serif',
+  fontSize: 28,
+  fontWeight: 700,
+  letterSpacing: "-0.025em",
+  lineHeight: 1
+};
+
+const historyDetailStatusStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 28,
+  padding: "0 10px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase"
+};
+
+const historySectionStyle: CSSProperties = {
+  marginTop: 18,
+  paddingTop: 18
+};
+
+const historySectionHeadingStyle: CSSProperties = {
+  marginBottom: 10,
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase"
+};
+
+const historyBodyTextStyle: CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1.6
+};
+
+const historyCodeBlockStyle: CSSProperties = {
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
+  margin: 0,
+  padding: "14px 16px",
+  borderRadius: 14,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontSize: 12,
+  lineHeight: 1.55,
+  whiteSpace: "pre-wrap"
+};
+
+const historyInfoCardStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 16,
+  border: "1px solid rgba(255,255,255,0.06)",
+  background: "rgba(255,255,255,0.03)"
 };
 
 const infoBubbleStyle: CSSProperties = {
@@ -399,14 +618,94 @@ const getPortalPopoverPosition = (button: HTMLButtonElement | null) => {
   }
 
   const rect = button.getBoundingClientRect();
+  const inset = 16;
+  const gap = 8;
+  const minWidth = 196;
+  const maxWidth = 260;
   const estimatedHeight = 220;
-  const openAbove = rect.top > estimatedHeight + 24;
+  const availableWidth = Math.max(160, window.innerWidth - inset * 2);
+  const availableAbove = Math.max(0, rect.top - inset - gap);
+  const availableBelow = Math.max(0, window.innerHeight - rect.bottom - inset - gap);
+  const openAbove =
+    availableAbove > availableBelow && availableAbove >= Math.min(estimatedHeight, 160);
+  const width = Math.min(
+    availableWidth,
+    Math.min(maxWidth, Math.max(Math.min(minWidth, availableWidth), rect.width)),
+  );
+  const maxLeft = Math.max(inset, window.innerWidth - inset - width);
+  const left = Math.min(Math.max(inset, rect.right - width), maxLeft);
+  const maxHeight = Math.max(120, openAbove ? availableAbove : availableBelow);
+  const top = openAbove
+    ? Math.max(inset, rect.top - gap - Math.min(estimatedHeight, maxHeight))
+    : Math.min(rect.bottom + gap, window.innerHeight - inset - Math.min(estimatedHeight, maxHeight));
 
   return {
-    left: Math.round(rect.right),
-    top: Math.round(openAbove ? rect.top - 8 : rect.bottom + 8),
-    transform: openAbove ? "translate(-100%, -100%)" : "translate(-100%, 0)"
-  } satisfies Pick<CSSProperties, "left" | "top" | "transform">;
+    left: Math.round(left),
+    top: Math.round(top),
+    width,
+    maxHeight
+  } satisfies Pick<CSSProperties, "left" | "top" | "width" | "maxHeight">;
+};
+
+const splitPatchIntoFileDiffs = (patch: string): string[] => {
+  const normalized = patch.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const lines = normalized.split("\n");
+  const fileDiffs: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("diff --git ") && current.length) {
+      fileDiffs.push(current.join("\n"));
+      current = [line];
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  if (current.length) {
+    fileDiffs.push(current.join("\n"));
+  }
+
+  return fileDiffs;
+};
+
+const DiffPreview = ({
+  patch,
+  theme
+}: {
+  patch: string;
+  theme: OverlayTheme;
+}) => {
+  const fileDiffs = useMemo(() => splitPatchIntoFileDiffs(patch), [patch]);
+
+  return (
+    <div style={{ ...diffViewerStyle, display: "grid", gap: 10 }}>
+      {fileDiffs.map((filePatch, index) => (
+        <PatchDiff
+          key={`${index}:${filePatch.slice(0, 80)}`}
+          patch={filePatch}
+          options={{
+            theme: theme === "dark" ? "pierre-dark" : "pierre-light",
+            themeType: theme,
+            diffStyle: "unified",
+            diffIndicators: "bars",
+            lineDiffType: "word",
+            overflow: "wrap",
+            disableLineNumbers: true
+          }}
+          style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 11.5
+          }}
+        />
+      ))}
+    </div>
+  );
 };
 
 const WIDGET_WIDTH = 340;
@@ -862,6 +1161,20 @@ const clampLauncherDockPosition = (left: number, top: number) => ({
   top: Math.min(Math.max(16, top), window.innerHeight - 72)
 });
 
+const getLauncherContextMenuState = (rect: DOMRect): LauncherContextMenuState => {
+  const spaceAbove = rect.top;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceLeft = rect.left;
+  const spaceRight = window.innerWidth - rect.right;
+
+  return {
+    anchorX: Math.round(rect.left + rect.width / 2),
+    anchorY: Math.round(rect.top + rect.height / 2),
+    direction: spaceBelow >= spaceAbove ? "down" : "up",
+    horizontal: spaceRight >= spaceLeft ? "right" : "left"
+  };
+};
+
 const eventToShortcut = (event: KeyboardEvent): string | null => {
   const key = event.key;
   if (!key || key === "Meta" || key === "Control" || key === "Alt" || key === "Shift") {
@@ -1207,7 +1520,6 @@ const WidgetPanel = ({
   isRecordingShortcut,
   onStartShortcutRecording,
   onResetShortcut,
-  onThemeChange,
   themeStyles
 }: {
   widget: GrabWidget;
@@ -1220,7 +1532,6 @@ const WidgetPanel = ({
   isRecordingShortcut: boolean;
   onStartShortcutRecording(): void;
   onResetShortcut(): void;
-  onThemeChange(theme: OverlayTheme): void;
   themeStyles: OverlayThemeStyles;
 }) => {
   const {
@@ -1228,6 +1539,7 @@ const WidgetPanel = ({
     updatePrompt,
     updateModel,
     updateEffort,
+    retryConnection,
     toggleScreenshot,
     refreshScreenshot,
     submitPrompt,
@@ -1265,7 +1577,7 @@ const WidgetPanel = ({
   const [focusedPrompt, setFocusedPrompt] = useState<"compact" | "expanded" | null>(null);
   const [pickerPopoverPosition, setPickerPopoverPosition] = useState<Pick<
     CSSProperties,
-    "left" | "top" | "transform"
+    "left" | "top" | "width" | "maxHeight"
   > | null>(null);
   const pickerRootRef = useRef<HTMLDivElement | null>(null);
   const pickerPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -1556,6 +1868,23 @@ const WidgetPanel = ({
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {widget.connectionStatus === "error" ? (
+            <button
+              type="button"
+              style={{
+                ...iconButtonStyle,
+                ...headerControlButtonStyle,
+                ...themeStyles.iconButton,
+                width: "auto",
+                padding: "0 12px"
+              }}
+              onClick={() => retryConnection(widget.id)}
+              aria-label="Retry connection"
+              title="Retry connection"
+            >
+              Retry
+            </button>
+          ) : null}
           {!expanded && widget.turnStatus !== "idle" ? (
             <button
               type="button"
@@ -1632,73 +1961,7 @@ const WidgetPanel = ({
           }}
           data-codex-grab-overlay="true"
         >
-          <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Theme</div>
-          <motion.button
-            type="button"
-            aria-label={theme === "dark" ? "Switch codex-grab to light mode" : "Switch codex-grab to dark mode"}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 14,
-              border: "none",
-              background: "transparent",
-              color: "inherit",
-              padding: "2px 0",
-              cursor: "pointer"
-            }}
-            onClick={() => onThemeChange(theme === "dark" ? "light" : "dark")}
-            whileTap={{ scale: 0.985 }}
-          >
-            <span style={themeStyles.themeToggleGroup}>
-              <motion.div
-                aria-hidden="true"
-                style={themeStyles.themeToggleButtonActive}
-                animate={{ x: theme === "dark" ? 34 : 0 }}
-                transition={{ type: "spring", stiffness: 420, damping: 30 }}
-              />
-              <span
-                style={{
-                  ...themeStyles.themeToggleButton,
-                  position: "absolute",
-                  top: "50%",
-                  left: 10,
-                  transform: "translateY(-50%)",
-                  color: theme === "light" ? "#f8fafc" : themeStyles.softText.color
-                }}
-              >
-                <SunIcon />
-              </span>
-              <span
-                style={{
-                  ...themeStyles.themeToggleButton,
-                  position: "absolute",
-                  top: "50%",
-                  right: 10,
-                  transform: "translateY(-50%)",
-                  color: theme === "dark" ? "#111827" : themeStyles.softText.color
-                }}
-              >
-                <MoonIcon />
-              </span>
-            </span>
-            <span
-              style={{
-                ...wrapTextStyle,
-                flex: 1,
-                textAlign: "right",
-                paddingRight: 2,
-                color: theme === "dark" ? "#f4f4f5" : "#0f172a",
-                fontWeight: 700,
-                letterSpacing: "-0.01em"
-              }}
-            >
-              {theme === "dark" ? "Dark" : "Light"}
-            </span>
-          </motion.button>
-          <div style={{ ...themeStyles.section, marginTop: 10, paddingTop: 10 }}>
+          <div style={{ display: "grid", gap: 8 }}>
             {showHeaderExpand ? (
               <button
                 type="button"
@@ -2022,24 +2285,7 @@ const WidgetPanel = ({
           <section style={{ ...sectionStyle, ...themeStyles.section }}>
             <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Current diff</div>
             {widget.diff ? (
-              <div style={diffViewerStyle}>
-                <PatchDiff
-                  patch={widget.diff}
-                  options={{
-                    theme: theme === "dark" ? "pierre-dark" : "pierre-light",
-                    themeType: theme,
-                    diffStyle: "unified",
-                    diffIndicators: "bars",
-                    lineDiffType: "word",
-                    overflow: "wrap",
-                    disableLineNumbers: true
-                  }}
-                  style={{
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                    fontSize: 11.5
-                  }}
-                />
-              </div>
+              <DiffPreview patch={widget.diff} theme={theme} />
             ) : (
               <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
                 No diff yet.
@@ -2114,18 +2360,75 @@ const WidgetPanel = ({
               <div
                 style={{
                   display: "flex",
-                  gap: 8,
-                  marginTop: 8,
-                  justifyContent: "flex-end",
-                  alignItems: "center"
+                  gap: 6,
+                  marginTop: 10,
+                  alignItems: "center",
+                  flexWrap: "nowrap"
                 }}
                 ref={pickerRootRef}
               >
+                <div style={{ position: "relative", flex: "1 1 0", minWidth: 0 }}>
+                  <button
+                    ref={modelButtonRef}
+                    type="button"
+                    style={{
+                      ...pickerButtonStyle,
+                      ...themeStyles.pickerButton,
+                      ...wrapTextStyle,
+                      width: "100%",
+                      minHeight: 32,
+                      padding: "0 10px"
+                    }}
+                    title={modelLabel}
+                    aria-label="Choose model"
+                    aria-haspopup="listbox"
+                    aria-expanded={openPicker === "model"}
+                    onClick={() =>
+                      setOpenPicker((current) => (current === "model" ? null : "model"))
+                    }
+                    disabled={!widget.availableModels.length}
+                  >
+                    <span style={{ ...pickerLabelStyle, maxWidth: 78 }}>{modelLabel}</span>
+                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
+                      <ChevronDownIcon />
+                    </span>
+                  </button>
+                </div>
+                <div style={{ position: "relative", flex: "0 0 100px", minWidth: 100 }}>
+                  <button
+                    ref={thinkingButtonRef}
+                    type="button"
+                    style={{
+                      ...pickerButtonStyle,
+                      ...themeStyles.pickerButton,
+                      ...wrapTextStyle,
+                      width: "100%",
+                      minHeight: 32,
+                      padding: "0 10px"
+                    }}
+                    title={thinkingLabel}
+                    aria-label="Choose thinking"
+                    aria-haspopup="listbox"
+                    aria-expanded={openPicker === "thinking"}
+                    onClick={() =>
+                      setOpenPicker((current) => (current === "thinking" ? null : "thinking"))
+                    }
+                    disabled={!effortOptions.length}
+                  >
+                    <span style={{ ...pickerLabelStyle, maxWidth: 56 }}>{thinkingLabel}</span>
+                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
+                      <ChevronDownIcon />
+                    </span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   style={{
                     ...iconButtonStyle,
                     ...themeStyles.iconButton,
+                    width: 32,
+                    height: 32,
+                    flexShrink: 0,
                     ...(widget.includeScreenshot
                       ? {
                           background: themeStyles.infoBubble.background,
@@ -2146,54 +2449,15 @@ const WidgetPanel = ({
                 >
                   <CameraIcon />
                 </button>
-                <div style={{ position: "relative" }}>
-                  <button
-                    ref={modelButtonRef}
-                    type="button"
-                    style={{ ...pickerButtonStyle, ...themeStyles.pickerButton, ...wrapTextStyle }}
-                    title={modelLabel}
-                    aria-label="Choose model"
-                    aria-haspopup="listbox"
-                    aria-expanded={openPicker === "model"}
-                    onClick={() =>
-                      setOpenPicker((current) => (current === "model" ? null : "model"))
-                    }
-                    disabled={!widget.availableModels.length}
-                  >
-                    <span style={{ ...pickerLabelStyle, maxWidth: 86 }}>{modelLabel}</span>
-                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
-                      <ChevronDownIcon />
-                    </span>
-                  </button>
-                </div>
-                <div style={{ position: "relative" }}>
-                  <button
-                    ref={thinkingButtonRef}
-                    type="button"
-                    style={{
-                      ...pickerButtonStyle,
-                      ...themeStyles.pickerButton,
-                      ...wrapTextStyle,
-                      maxWidth: 110
-                    }}
-                    title={thinkingLabel}
-                    aria-label="Choose thinking"
-                    aria-haspopup="listbox"
-                    aria-expanded={openPicker === "thinking"}
-                    onClick={() =>
-                      setOpenPicker((current) => (current === "thinking" ? null : "thinking"))
-                    }
-                    disabled={!effortOptions.length}
-                  >
-                    <span style={{ ...pickerLabelStyle, maxWidth: 64 }}>{thinkingLabel}</span>
-                    <span style={{ flexShrink: 0, display: "grid", placeItems: "center" }}>
-                      <ChevronDownIcon />
-                    </span>
-                  </button>
-                </div>
                 <button
                   type="button"
-                  style={{ ...iconButtonStyle, ...themeStyles.iconButton }}
+                  style={{
+                    ...iconButtonStyle,
+                    ...themeStyles.iconButton,
+                    width: 32,
+                    height: 32,
+                    flexShrink: 0
+                  }}
                   onClick={() => {
                     setOpenPicker(null);
                     toggleWidget(widget.id);
@@ -2208,9 +2472,11 @@ const WidgetPanel = ({
                   style={{
                     ...buttonStyle,
                     ...themeStyles.primaryButton,
-                    width: 44,
+                    width: 40,
+                    minHeight: 32,
                     display: "grid",
-                    placeItems: "center"
+                    placeItems: "center",
+                    flexShrink: 0
                   }}
                   disabled={!canSubmit}
                   onClick={handleSubmit}
@@ -2468,20 +2734,27 @@ const HistoryDialog = ({
             alignItems: "center",
             justifyContent: "space-between",
             gap: 12,
-            padding: 16,
+            padding: "18px 22px 16px",
             borderBottom: themeStyles.section.borderTop
           }}
         >
           <div>
-            <strong>History</strong>
-            <div style={{ ...themeStyles.softText, marginTop: 4 }}>
+            <h2 style={historyHeaderTitleStyle}>History</h2>
+            <div style={{ ...historyHeaderDescriptionStyle, ...themeStyles.softText }}>
               Saved browser history of Codex turns for this origin.
             </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
-              style={{ ...secondaryButtonStyle, ...themeStyles.secondaryButton }}
+              style={{
+                ...secondaryButtonStyle,
+                ...themeStyles.secondaryButton,
+                minHeight: 42,
+                padding: "0 22px",
+                display: "inline-flex",
+                alignItems: "center"
+              }}
               onClick={onClear}
               disabled={isClearing || history.length === 0}
             >
@@ -2489,7 +2762,13 @@ const HistoryDialog = ({
             </button>
             <button
               type="button"
-              style={{ ...iconButtonStyle, ...themeStyles.iconButton }}
+              style={{
+                ...iconButtonStyle,
+                ...themeStyles.iconButton,
+                width: 42,
+                height: 42,
+                flexShrink: 0
+              }}
               onClick={onClose}
               aria-label="Close history"
               title="Close"
@@ -2502,15 +2781,15 @@ const HistoryDialog = ({
         <div style={historyBodyStyle}>
           <div style={historySidebarStyle}>
             {historyStatus === "loading" ? (
-              <div style={themeStyles.softText}>Loading history…</div>
+              <div style={{ ...themeStyles.softText, ...historyBodyTextStyle }}>Loading history…</div>
             ) : null}
             {historyStatus === "error" ? (
-              <div style={themeStyles.softText}>
+              <div style={{ ...themeStyles.softText, ...historyBodyTextStyle }}>
                 {historyError ?? "History is unavailable in this browser."}
               </div>
             ) : null}
             {historyStatus !== "loading" && historyStatus !== "error" && history.length === 0 ? (
-              <div style={themeStyles.softText}>No saved turns yet.</div>
+              <div style={{ ...themeStyles.softText, ...historyBodyTextStyle }}>No saved turns yet.</div>
             ) : null}
             {historyStatus === "ready"
               ? history.map((record) => (
@@ -2518,18 +2797,20 @@ const HistoryDialog = ({
                     key={record.id}
                     type="button"
                     style={{
-                      width: "100%",
-                      textAlign: "left",
-                      border: "none",
+                      ...historySidebarCardStyle,
+                      border: `1px solid ${
+                        selectedRecord?.id === record.id
+                          ? "rgba(255,255,255,0.16)"
+                          : "rgba(255,255,255,0.03)"
+                      }`,
                       background:
                         selectedRecord?.id === record.id
-                          ? themeStyles.infoBubble.background
-                          : "transparent",
-                      color: "inherit",
-                      borderRadius: 12,
-                      padding: "10px 12px",
-                      cursor: "pointer",
-                      marginBottom: 8
+                          ? "linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05))"
+                          : "linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))",
+                      boxShadow:
+                        selectedRecord?.id === record.id
+                          ? "0 18px 32px rgba(0, 0, 0, 0.16)"
+                          : "none"
                     }}
                     onClick={() => onSelectHistory(record.id)}
                   >
@@ -2541,7 +2822,7 @@ const HistoryDialog = ({
                         gap: 8
                       }}
                     >
-                      <strong style={{ ...wrapTextStyle, flex: 1 }}>
+                      <strong style={historySidebarTitleStyle}>
                         {record.selection.componentName ?? "Unknown component"}
                       </strong>
                       <span
@@ -2554,15 +2835,12 @@ const HistoryDialog = ({
                         }}
                       />
                     </div>
-                    <div style={{ ...themeStyles.softText, marginTop: 4, ...wrapTextStyle }}>
+                    <div style={{ ...historySidebarPromptStyle, ...themeStyles.softText, ...wrapTextStyle }}>
                       {record.prompt || "No prompt"}
                     </div>
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 8,
-                        marginTop: 6,
+                        ...historySidebarMetaRowStyle,
                         ...themeStyles.mutedText
                       }}
                     >
@@ -2578,11 +2856,13 @@ const HistoryDialog = ({
 
           <div style={historyDetailStyle}>
             {!selectedRecord && historyStatus === "ready" ? (
-              <div style={themeStyles.softText}>Select a saved turn to inspect it.</div>
+              <div style={{ ...themeStyles.softText, ...historyBodyTextStyle }}>
+                Select a saved turn to inspect it.
+              </div>
             ) : null}
             {selectedRecord ? (
               <>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={historyDetailHeaderStyle}>
                   <span
                     style={{
                       width: 10,
@@ -2592,25 +2872,56 @@ const HistoryDialog = ({
                       flexShrink: 0
                     }}
                   />
-                  <strong>{selectedRecord.selection.componentName ?? "Unknown component"}</strong>
-                  <span style={themeStyles.softText}>{selectedRecord.status}</span>
+                  <h3 style={historyDetailTitleStyle}>
+                    {selectedRecord.selection.componentName ?? "Unknown component"}
+                  </h3>
+                  <span
+                    style={{
+                      ...historyDetailStatusStyle,
+                      ...themeStyles.softText,
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.08)"
+                    }}
+                  >
+                    {selectedRecord.status}
+                  </span>
                 </div>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Prompt</div>
-                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Prompt</div>
+                  <pre style={{ ...historyCodeBlockStyle, ...themeStyles.card }}>
                     {selectedRecord.prompt}
                   </pre>
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Selection</div>
-                  <div style={wrapTextStyle}>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Selection</div>
+                  <div style={{ ...historyInfoCardStyle, ...themeStyles.card }}>
+                  <div style={{ ...wrapTextStyle, ...historyBodyTextStyle }}>
                     <strong>{selectedRecord.selection.componentName ?? "Unknown component"}</strong>
                   </div>
-                  <div style={wrapTextStyle}>{selectedRecord.selection.selector ?? "No selector"}</div>
-                  <div style={{ ...wrapTextStyle, ...themeStyles.softText, marginTop: 6 }}>
+                  <div
+                    style={{
+                      ...wrapTextStyle,
+                      ...themeStyles.softText,
+                      marginTop: 6,
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: 12
+                    }}
+                  >
+                    {selectedRecord.selection.selector ?? "No selector"}
+                  </div>
+                  <div
+                    style={{
+                      ...wrapTextStyle,
+                      ...themeStyles.softText,
+                      marginTop: 8,
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: 12
+                    }}
+                  >
                     {selectedRecord.selection.source?.fileName ?? "No source location"}
+                  </div>
                   </div>
                   {selectedRecord.selection.screenshot ? (
                     <div
@@ -2636,26 +2947,36 @@ const HistoryDialog = ({
                   ) : null}
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Run details</div>
-                  <div style={{ ...themeStyles.softText, ...wrapTextStyle }}>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Run details</div>
+                  <div style={{ ...historyInfoCardStyle, ...themeStyles.card }}>
+                  <div style={{ ...themeStyles.softText, ...wrapTextStyle, ...historyBodyTextStyle }}>
                     {selectedRecord.model ?? "No model"}
                     {selectedRecord.effort ? ` · ${selectedRecord.effort}` : ""}
                     {" · "}
                     {formatHistoryTimestamp(selectedRecord.createdAt)}
                   </div>
-                  <div style={{ ...themeStyles.softText, ...wrapTextStyle, marginTop: 4 }}>
+                  <div
+                    style={{
+                      ...themeStyles.softText,
+                      ...wrapTextStyle,
+                      marginTop: 6,
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: 12
+                    }}
+                  >
                     {selectedRecord.cwd ?? "No cwd"}
+                  </div>
                   </div>
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Plan</div>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Plan</div>
                   {selectedRecord.planExplanation ? (
-                    <div style={{ marginBottom: 8 }}>{selectedRecord.planExplanation}</div>
+                    <div style={{ ...historyBodyTextStyle, marginBottom: 8 }}>{selectedRecord.planExplanation}</div>
                   ) : null}
                   {selectedRecord.plan.length ? (
-                    <ul style={{ paddingLeft: 18, margin: 0 }}>
+                    <ul style={{ paddingLeft: 18, margin: 0, ...historyBodyTextStyle }}>
                       {selectedRecord.plan.map((step) => (
                         <li key={`${selectedRecord.id}:${step.step}`}>
                           {step.status}: {step.step}
@@ -2667,71 +2988,39 @@ const HistoryDialog = ({
                   )}
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Reasoning summary</div>
-                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>
+                    Reasoning summary
+                  </div>
+                  <pre style={{ ...historyCodeBlockStyle, ...themeStyles.card }}>
                     {selectedRecord.reasoningSummary || "No reasoning summary recorded."}
                   </pre>
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>
                     Command / file activity
                   </div>
-                  <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                  <pre style={{ ...historyCodeBlockStyle, ...themeStyles.card }}>
                     {selectedRecord.commandOutput || "No command output recorded."}
                   </pre>
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Current diff</div>
+                <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                  <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Current diff</div>
                   {selectedRecord.diff ? (
-                    <div style={diffViewerStyle}>
-                      <PatchDiff
-                        patch={selectedRecord.diff}
-                        options={{
-                          theme: theme === "dark" ? "pierre-dark" : "pierre-light",
-                          themeType: theme,
-                          diffStyle: "unified",
-                          diffIndicators: "bars",
-                          lineDiffType: "word",
-                          overflow: "wrap",
-                          disableLineNumbers: true
-                        }}
-                        style={{
-                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                          fontSize: 11.5
-                        }}
-                      />
-                    </div>
+                    <DiffPreview patch={selectedRecord.diff} theme={theme} />
                   ) : (
-                    <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                    <pre style={{ ...historyCodeBlockStyle, ...themeStyles.card }}>
                       No diff recorded.
                     </pre>
                   )}
                 </section>
 
-                <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                  <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Approvals</div>
-                  {selectedRecord.approvals.length ? (
-                    <ul style={{ paddingLeft: 18, margin: 0 }}>
-                      {selectedRecord.approvals.map((approval) => (
-                        <li key={`${selectedRecord.id}:${approval.requestId}`}>
-                          {approval.kind}
-                          {approval.reason ? ` - ${approval.reason}` : ""}
-                          {approval.decision ? ` (${approval.decision})` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div style={themeStyles.softText}>No approvals recorded.</div>
-                  )}
-                </section>
-
                 {selectedRecord.errorMessage ? (
-                  <section style={{ ...sectionStyle, ...themeStyles.section }}>
-                    <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Error</div>
-                    <pre style={{ ...wrapTextStyle, whiteSpace: "pre-wrap", margin: 0 }}>
+                  <section style={{ ...historySectionStyle, ...sectionStyle, ...themeStyles.section }}>
+                    <div style={{ ...historySectionHeadingStyle, ...themeStyles.mutedText }}>Error</div>
+                    <pre style={{ ...historyCodeBlockStyle, ...themeStyles.card }}>
                       {selectedRecord.errorMessage}
                     </pre>
                   </section>
@@ -2771,13 +3060,12 @@ export const CodexGrabOverlay = () => {
     readLauncherCornerPreference(),
   );
   const [launcherDragPosition, setLauncherDragPosition] = useState<{ left: number; top: number } | null>(null);
-  const [launcherContextMenu, setLauncherContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [launcherContextMenu, setLauncherContextMenu] = useState<LauncherContextMenuState | null>(null);
   const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const shortcutLabel = useMemo(() => shortcutToLabel(shortcut), [shortcut]);
   const themeStyles = useMemo(() => getThemeStyles(theme), [theme]);
-  const launcherContextMenuRef = useRef<HTMLDivElement | null>(null);
   const previousWidgetIdsRef = useRef<string[]>([]);
   const launcherDragRef = useRef<{
     pointerId: number;
@@ -2831,6 +3119,30 @@ export const CodexGrabOverlay = () => {
       setSelectedHistoryId(history[0]?.id ?? null);
     }
   }, [history, isHistoryOpen, selectedHistoryId]);
+
+  useEffect(() => {
+    if (!isHistoryOpen || typeof document === "undefined") {
+      return;
+    }
+
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousDocumentOverflow = documentElement.style.overflow;
+    const previousBodyOverscrollBehavior = body.style.overscrollBehavior;
+    const previousDocumentOverscrollBehavior = documentElement.style.overscrollBehavior;
+
+    body.style.overflow = "hidden";
+    documentElement.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    documentElement.style.overscrollBehavior = "none";
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousDocumentOverflow;
+      body.style.overscrollBehavior = previousBodyOverscrollBehavior;
+      documentElement.style.overscrollBehavior = previousDocumentOverscrollBehavior;
+    };
+  }, [isHistoryOpen]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -2908,13 +3220,123 @@ export const CodexGrabOverlay = () => {
     [],
   );
 
+  const launcherActions = useMemo(
+    () => [
+        {
+          id: "theme",
+          kind: "theme" as const,
+          label: "Appearance",
+          description: theme === "dark" ? "Dark mode" : "Light mode",
+          icon: theme === "dark" ? <MoonIcon /> : <SunIcon />,
+          onSelect: () => {
+            const nextTheme = theme === "dark" ? "light" : "dark";
+            setTheme(nextTheme);
+            writeThemePreference(nextTheme);
+          }
+        },
+        {
+          id: "history",
+          kind: "button" as const,
+          label: "History",
+          meta: String(history.length),
+          icon: <HistoryIcon />,
+          onSelect: () => {
+            openHistory();
+            setLauncherContextMenu(null);
+          }
+        },
+        ...(widgets.length > 0
+          ? [
+              {
+                id: "clear",
+                kind: "button" as const,
+                label: "Clear saved widgets",
+                meta: String(widgets.length),
+                icon: <CloseIcon />,
+                onSelect: async () => {
+                  await clearPersistedWidgets();
+                  setLauncherContextMenu(null);
+                }
+              }
+            ]
+          : []),
+        {
+          id: "hide",
+          kind: "button" as const,
+          label: "Hide for this session",
+          meta: "Session",
+          icon: <EyeOffIcon />,
+          onSelect: () => {
+            writeOverlayHiddenCookie(true);
+            setOverlayHidden(true);
+            setLauncherContextMenu(null);
+          }
+        }
+      ],
+    [clearPersistedWidgets, history.length, openHistory, theme, widgets.length],
+  );
+
+  const launcherFanoutThemeStyles = useMemo(
+    () =>
+      theme === "dark"
+        ? {
+            button: {
+              border: "1px solid rgba(255,255,255,0.1)",
+              background:
+                "linear-gradient(180deg, rgba(20,22,30,0.98), rgba(7,9,15,0.985))",
+              boxShadow: "0 18px 34px rgba(15, 23, 42, 0.18)",
+              color: "#f8fafc"
+            },
+            icon: {
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)"
+            },
+            meta: {
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.07)"
+            },
+            eyebrow: {
+              color: "rgba(244, 244, 245, 0.56)"
+            },
+            hoverShadow: "0 22px 40px rgba(15, 23, 42, 0.22)"
+          }
+        : {
+            button: {
+              border: "1px solid rgba(148,163,184,0.28)",
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(241,245,249,0.96))",
+              boxShadow:
+                "0 18px 36px rgba(148, 163, 184, 0.18), inset 0 1px 0 rgba(255,255,255,0.8)",
+              color: "#0f172a"
+            },
+            icon: {
+              background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(226,232,240,0.9))",
+              border: "1px solid rgba(148,163,184,0.22)"
+            },
+            meta: {
+              background: "rgba(248,250,252,0.9)",
+              border: "1px solid rgba(148,163,184,0.22)"
+            },
+            eyebrow: {
+              color: "rgba(71, 85, 105, 0.82)"
+            },
+            hoverShadow: "0 22px 40px rgba(148, 163, 184, 0.22)"
+          },
+    [theme],
+  );
+
   useEffect(() => {
     if (!launcherContextMenu) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!launcherContextMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target;
+      if (
+        !(target instanceof Element) ||
+        (!target.closest("[data-codex-grab-launcher-menu='true']") &&
+          !target.closest("[data-codex-grab-launcher='true']"))
+      ) {
         setLauncherContextMenu(null);
       }
     };
@@ -3042,95 +3464,165 @@ export const CodexGrabOverlay = () => {
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            const menuWidth = 220;
-            const menuHeight = 132;
-            setLauncherContextMenu({
-              x: Math.min(Math.max(12, event.clientX - menuWidth + 40), window.innerWidth - menuWidth - 12),
-              y: Math.min(Math.max(12, event.clientY - menuHeight - 10), window.innerHeight - menuHeight - 12)
-            });
+            setLauncherContextMenu(getLauncherContextMenuState(event.currentTarget.getBoundingClientRect()));
           }}
           aria-label={isSelecting ? "Cancel selection" : "Select area for codex-grab"}
           title={isSelecting ? "Cancel pick" : `Pick area (${shortcutLabel})`}
           data-codex-grab-overlay="true"
+          data-codex-grab-launcher="true"
         >
           <CrosshairIcon />
         </motion.button>
       </div>
 
-      {launcherContextMenu ? (
-        <div
-          ref={launcherContextMenuRef}
-          style={{
-            ...launcherContextMenuStyle,
-            ...themeStyles.widget,
-            left: launcherContextMenu.x,
-            top: launcherContextMenu.y,
-            boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)"
-          }}
-          data-codex-grab-overlay="true"
-        >
-          <button
-            type="button"
-            style={{
-              ...launcherContextActionStyle,
-              color: themeStyles.widget.color,
-              marginBottom: 4
-            }}
-            onClick={() => {
-              openHistory();
-              setLauncherContextMenu(null);
-            }}
-          >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <span style={{ display: "grid", placeItems: "center", flexShrink: 0 }}>
-                <HistoryIcon />
-              </span>
-              <span style={{ ...pickerLabelStyle, maxWidth: 120 }}>History</span>
-            </span>
-            <span style={{ ...themeStyles.softText, flexShrink: 0 }}>{history.length}</span>
-          </button>
-          <button
-            type="button"
-            style={{
-              ...launcherContextActionStyle,
-              color: themeStyles.widget.color,
-              marginBottom: 4
-            }}
-            onClick={async () => {
-              await clearPersistedWidgets();
-              setLauncherContextMenu(null);
-            }}
-          >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <span style={{ display: "grid", placeItems: "center", flexShrink: 0 }}>
-                <CloseIcon />
-              </span>
-              <span style={{ ...pickerLabelStyle, maxWidth: 120 }}>Clear saved widgets</span>
-            </span>
-            <span style={{ ...themeStyles.softText, flexShrink: 0 }}>{widgets.length}</span>
-          </button>
-          <button
-            type="button"
-            style={{
-              ...launcherContextActionStyle,
-              color: themeStyles.widget.color
-            }}
-            onClick={() => {
-              writeOverlayHiddenCookie(true);
-              setOverlayHidden(true);
-              setLauncherContextMenu(null);
-            }}
-          >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <span style={{ display: "grid", placeItems: "center", flexShrink: 0 }}>
-                <EyeOffIcon />
-              </span>
-              <span style={{ ...pickerLabelStyle, maxWidth: 120 }}>Hide for this session</span>
-            </span>
-            <span style={{ ...themeStyles.softText, flexShrink: 0 }}>Session</span>
-          </button>
-        </div>
-      ) : null}
+      <AnimatePresence initial={false}>
+        {launcherContextMenu ? (
+          <div style={launcherFanoutFieldStyle} data-codex-grab-overlay="true">
+            {launcherActions.map((action, index) => {
+              const verticalMultiplier = launcherContextMenu.direction === "up" ? -1 : 1;
+              const step = 60;
+              const top =
+                launcherContextMenu.anchorY +
+                verticalMultiplier * (index + 1) * step -
+                24;
+              const left = Math.min(
+                Math.max(16, launcherContextMenu.anchorX - 112),
+                window.innerWidth - 16 - 224,
+              );
+
+              return (
+                <motion.button
+                  key={action.id}
+                  type="button"
+                  style={{
+                    ...launcherFanoutItemStyle,
+                    ...launcherFanoutButtonStyle,
+                    ...launcherFanoutThemeStyles.button,
+                    left,
+                    top,
+                    color: themeStyles.widget.color
+                  }}
+                  initial={{
+                    opacity: 0,
+                    scale: 0.88,
+                    y: launcherContextMenu.anchorY - top
+                  }}
+                  animate={{
+                    opacity: 1,
+                    scale: 1,
+                    y: 0
+                  }}
+                  exit={{
+                    opacity: 0,
+                    scale: 0.92,
+                    y: launcherContextMenu.anchorY - top
+                  }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 380,
+                    damping: 30,
+                    mass: 0.62,
+                    delay: index * 0.03
+                  }}
+                  whileHover={{
+                    y: -1,
+                    boxShadow: launcherFanoutThemeStyles.hoverShadow
+                  }}
+                  onClick={() => {
+                    void action.onSelect();
+                  }}
+                  aria-label={
+                    action.kind === "theme"
+                      ? `${action.label}: ${action.description}`
+                      : action.label
+                  }
+                  data-codex-grab-launcher-menu="true"
+                >
+                  <span
+                    style={{
+                      ...launcherFanoutIconWrapStyle,
+                      ...launcherFanoutThemeStyles.icon
+                    }}
+                  >
+                    {action.icon}
+                  </span>
+                  {action.kind === "theme" ? (
+                    <>
+                      <span style={launcherFanoutLabelGroupStyle}>
+                        <span style={launcherFanoutLabelTextStyle}>{action.label}</span>
+                        <span
+                          style={{
+                            ...launcherFanoutEyebrowStyle,
+                            ...launcherFanoutThemeStyles.eyebrow
+                          }}
+                        >
+                          {action.description}
+                        </span>
+                      </span>
+                      <span
+                        style={{
+                          ...themeStyles.themeToggleGroup,
+                          ...launcherFanoutThemeGroupStyle
+                        }}
+                        aria-hidden="true"
+                      >
+                        <motion.div
+                          style={{
+                            ...themeStyles.themeToggleButtonActive,
+                            top: 2,
+                            left: 3,
+                            width: 26,
+                            height: 26
+                          }}
+                          animate={{ x: theme === "dark" ? 29 : 0 }}
+                          transition={{ type: "spring", stiffness: 420, damping: 30 }}
+                        />
+                        <span
+                          style={{
+                            ...themeStyles.themeToggleButton,
+                            position: "absolute",
+                            top: "50%",
+                            left: 8,
+                            transform: "translateY(-50%)",
+                            color: theme === "light" ? "#f8fafc" : themeStyles.softText.color
+                          }}
+                        >
+                          <SunIcon />
+                        </span>
+                        <span
+                          style={{
+                            ...themeStyles.themeToggleButton,
+                            position: "absolute",
+                            top: "50%",
+                            right: 8,
+                            transform: "translateY(-50%)",
+                            color: theme === "dark" ? "#111827" : themeStyles.softText.color
+                          }}
+                        >
+                          <MoonIcon />
+                        </span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={launcherFanoutLabelTextStyle}>{action.label}</span>
+                      <span
+                        style={{
+                          ...launcherFanoutMetaStyle,
+                          ...launcherFanoutThemeStyles.meta,
+                          ...themeStyles.softText
+                        }}
+                      >
+                        {action.meta}
+                      </span>
+                    </>
+                  )}
+                </motion.button>
+              );
+            })}
+          </div>
+        ) : null}
+      </AnimatePresence>
 
       {isHistoryOpen ? (
         <HistoryDialog
@@ -3190,10 +3682,6 @@ export const CodexGrabOverlay = () => {
               setShortcut(DEFAULT_SHORTCUT);
               writeShortcutPreference(DEFAULT_SHORTCUT);
               setIsRecordingShortcut(false);
-            }}
-            onThemeChange={(nextTheme) => {
-              setTheme(nextTheme);
-              writeThemePreference(nextTheme);
             }}
             themeStyles={themeStyles}
           />

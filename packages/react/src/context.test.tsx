@@ -92,6 +92,8 @@ vi.mock("@codex-grab/core", async () => {
 
 class MockSocket {
   static instances: MockSocket[] = [];
+  static autoSessionStart = true;
+  static onSend: ((socket: MockSocket, message: Record<string, unknown>) => void) | null = null;
   static OPEN = 1;
   readyState = WebSocket.OPEN;
   listeners = new Map<string, Array<(event: MessageEvent | Event) => void>>();
@@ -121,7 +123,12 @@ class MockSocket {
       token?: string;
       resumeSessionId?: string | null;
     };
-    if (message.type === "session.ping" && message.token === "secret") {
+    if (MockSocket.onSend) {
+      MockSocket.onSend(this, message as Record<string, unknown>);
+      return;
+    }
+
+    if (MockSocket.autoSessionStart && message.type === "session.ping" && message.token === "secret") {
       this.emit(
         "message",
         new MessageEvent("message", {
@@ -305,6 +312,8 @@ describe("CodexGrabProvider", () => {
 
   beforeEach(() => {
     MockSocket.instances = [];
+    MockSocket.autoSessionStart = true;
+    MockSocket.onSend = null;
     vi.stubGlobal("WebSocket", MockSocket as unknown as typeof WebSocket);
     installMockLocalStorage();
     installMockIndexedDb();
@@ -352,6 +361,44 @@ describe("CodexGrabProvider", () => {
       type: "session.ping",
       token: "secret"
     });
+  });
+
+  it("shows a stable connection error and retries on demand", async () => {
+    MockSocket.autoSessionStart = false;
+    MockSocket.onSend = (socket, message) => {
+      if (message.type === "session.ping") {
+        socket.emit("close", new Event("close"));
+      }
+    };
+
+    const user = userEvent.setup();
+    render(
+      <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
+        <CodexGrabOverlay />
+      </CodexGrabProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Select area for codex-grab" }));
+    await act(async () => {
+      await selectorState.options?.onSelect(createSelection("RetryCard"));
+    });
+
+    expect(await screen.findByText("Bridge connection closed.")).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(MockSocket.instances).toHaveLength(1);
+
+    MockSocket.autoSessionStart = true;
+    MockSocket.onSend = null;
+
+    await user.click(screen.getByRole("button", { name: "Retry connection" }));
+
+    await waitFor(() => {
+      expect(MockSocket.instances).toHaveLength(2);
+    });
+    expect(await screen.findByText("Ready")).toBeTruthy();
   });
 
   it("supports multiple widgets with independent prompt submission", async () => {
@@ -410,7 +457,7 @@ describe("CodexGrabProvider", () => {
       selection: {
         componentName: "FeatureCard",
         selector: "#featurecard",
-        htmlPreview: "<button id=\"featurecard\">FeatureCard</button>",
+        htmlPreview: "<button>FeatureCard</button>",
         stackString: "FeatureCard > Button",
         stack: [],
         styles: "display:inline-flex;",
@@ -587,6 +634,15 @@ describe("CodexGrabProvider", () => {
   it("unmounts widgets when the view changes and remounts them when returning", async () => {
     const user = userEvent.setup();
 
+    const RouteStateHarness = () => {
+      const { currentViewId, widgets } = useCodexGrab();
+      return (
+        <div data-testid="route-state">
+          {currentViewId}:{widgets.map((widget) => widget.serializedSelection.componentName).join(",")}
+        </div>
+      );
+    };
+
     const RoutedHarness = () => {
       const [route, setRoute] = useState("route-a");
       return (
@@ -598,6 +654,7 @@ describe("CodexGrabProvider", () => {
             token="secret"
             viewId={route}
           >
+            <RouteStateHarness />
             {route === "route-a" ? <button id="featurecard">FeatureCard</button> : <button id="othercard">OtherCard</button>}
             <CodexGrabOverlay />
           </CodexGrabProvider>
@@ -616,15 +673,33 @@ describe("CodexGrabProvider", () => {
     });
 
     expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByTestId("route-state").textContent).toBe("route-a:FeatureCard");
+    });
 
     await user.click(screen.getByRole("button", { name: "Route B" }));
     await waitFor(() => {
       expect(screen.queryByPlaceholderText("Describe the change you want Codex to make.")).toBeNull();
     });
 
+    await user.click(screen.getByRole("button", { name: "Select area for codex-grab" }));
+    const otherButton = screen.getByRole("button", { name: "OtherCard" });
+    await act(async () => {
+      await selectorState.options?.onSelect(
+        createSelectionFromElement(otherButton as HTMLButtonElement, "OtherCard"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("OtherCard").length).toBeGreaterThan(0);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("route-state").textContent).toBe("route-b:OtherCard");
+    });
+
     await user.click(screen.getByRole("button", { name: "Route A" }));
     await waitFor(() => {
-      expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
+      expect(screen.getByTestId("route-state").textContent).toBe("route-a:FeatureCard");
     });
   });
 
@@ -817,7 +892,13 @@ describe("CodexGrabProvider", () => {
               "+++ b/demo-vite/src/App.tsx",
               "@@ -1,1 +1,1 @@",
               "-Hello",
-              "+Hello world"
+              "+Hello world",
+              "diff --git a/demo-vite/src/main.tsx b/demo-vite/src/main.tsx",
+              "--- a/demo-vite/src/main.tsx",
+              "+++ b/demo-vite/src/main.tsx",
+              "@@ -1,1 +1,1 @@",
+              "-createRoot(node)",
+              "+createRoot(node).render(app)"
             ].join("\n")
           })
         }),
@@ -855,10 +936,10 @@ describe("CodexGrabProvider", () => {
 
     expect(await screen.findByText("Saved browser history of Codex turns for this origin.")).toBeTruthy();
     expect(screen.getAllByText("FeatureCard").length).toBeGreaterThan(0);
-    expect(await screen.findByText(/Change the feature copy/)).toBeTruthy();
+    expect((await screen.findAllByText(/Change the feature copy/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Updating the body copy\./)).toBeTruthy();
     expect(await screen.findByText(/M demo-vite\/src\/App\.tsx/)).toBeTruthy();
-    expect(document.querySelector("diffs-container")).toBeTruthy();
+    expect(document.querySelectorAll("diffs-container").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows history unavailable state without breaking widgets when IndexedDB fails", async () => {
@@ -954,7 +1035,7 @@ describe("CodexGrabProvider", () => {
       expect(screen.queryByText("Loading history…")).toBeNull();
     });
 
-    expect(await screen.findByText(/Archive this run/)).toBeTruthy();
+    expect((await screen.findAllByText(/Archive this run/)).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Clear history" }));
     await waitFor(() => {
       expect(screen.getByText("No saved turns yet.")).toBeTruthy();
