@@ -6,10 +6,9 @@
 
 - `@codex-grab/core`: DOM selection, React context capture, serialization, and shared bridge message types.
 - `@codex-grab/react`: provider, overlay, pinned widgets, and hooks for mounting the browser UI in a React app.
-- `@codex-grab/demo-shell`: shared routed demo UI used by the manual Vite demo and the promo video workspace.
+- `@codex-grab/demo-shell`: shared routed demo UI used by the manual Vite demo app.
 - `@codex-grab/bridge`: localhost WebSocket sidecar that manages `codex app-server` and streams stable browser events.
 - `demo-vite`: reference app for manual testing and Playwright smoke checks.
-- `promo-remotion`: scripted Remotion promo workspace that drives the real overlay with deterministic mock bridge events.
 
 ## Requirements
 
@@ -28,16 +27,13 @@ npm run check
 npm test
 ```
 
-`npm run build` runs the workspace builds in dependency order: `@codex-grab/core`, `@codex-grab/react`, `@codex-grab/demo-shell`, `@codex-grab/bridge`, `demo-vite`, then `promo-remotion`.
+`npm run build` runs the workspace builds in dependency order: `@codex-grab/core`, `@codex-grab/react`, `@codex-grab/demo-shell`, `@codex-grab/bridge`, then `demo-vite`.
 
 Useful dev commands:
 
 ```bash
 npm run dev:demo
 npm run dev:bridge
-npm run dev:promo
-npm run stage:promo
-npm run render:promo
 npm run dev:all
 ```
 
@@ -56,6 +52,12 @@ CODEX_GRAB_DEMO_PORT=5173 \
 CODEX_GRAB_ALLOWED_ORIGIN=http://127.0.0.1:5173 \
 npm run dev:all
 ```
+
+Security note:
+
+- Prefer a unique random token instead of the example `dev-token`.
+- Always set `--allowed-origin` or `CODEX_GRAB_ALLOWED_ORIGIN` to your actual app origin.
+- The bridge binds to `127.0.0.1` / `localhost` only, but if you reuse a predictable token and skip origin allowlisting, another local page could potentially talk to the bridge.
 
 ## Quickstart
 
@@ -125,7 +127,7 @@ You can create multiple widgets at once by selecting multiple areas. Each widget
 
 - The picker launcher can be dragged between corners.
 - Right-click the launcher to open the launcher menu.
-- The launcher menu exposes appearance switching, browser-local turn history, clear-saved-widgets, and hide-for-session.
+- The launcher menu exposes appearance switching, browser-local turn history, hide-for-session, and clear-saved-widgets when persisted widgets exist.
 - Clicking a compact widget expands it.
 - Clicking away clears focus and collapses expanded widgets back into the background.
 - New widgets autofocus once, but they do not permanently steal active focus from other widgets.
@@ -136,7 +138,7 @@ You can create multiple widgets at once by selecting multiple areas. Each widget
 - Dragging a widget moves it to a new page position and it stays there while scrolling.
 - Idle widgets start in a compact composer state.
 - Running and completed widgets prefer the compact chip form when unfocused.
-- Expanded widgets expose more detail: selection metadata, model selection, reasoning effort, prompt editing, plan updates, reasoning summary, command output, diff view, recent events, theme toggle, and picker shortcut settings.
+- Expanded widgets expose more detail: selection metadata, model selection, reasoning effort, prompt editing, plan updates, reasoning summary, command output, diff view, recent events, and picker shortcut settings.
 - Widgets can optionally capture a screenshot of the selected DOM region and send it to Codex as extra visual context.
 
 ## Models and thinking
@@ -160,15 +162,7 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 
 - `codex-grab` ships with dark and light themes.
 - Theme switching is available from the launcher right-click menu.
-- The launcher, widgets, popovers, diff view, and compact chips all switch together.
-
-## Promo Video Workspace
-
-- `promo-remotion` uses the real `CodexGrabProvider`, `CodexGrabOverlay`, and shared routed demo shell.
-- The workspace installs a promo-only `WebSocket` shim for `ws://promo-bridge` so the video can replay deterministic bridge events without a live Codex session.
-- `npm run dev:promo` opens Remotion Studio for the scripted promo composition.
-- `npm run stage:promo` opens a Vite staging app with a scrubber for scene iteration outside the final render flow.
-- `npm run render:promo` renders the main promo composition to `promo-remotion/out/codex-grab-promo.mp4`.
+- The launcher, widgets, popovers, diff view, compact chips, and history dialog all switch together.
 
 ## Diffs
 
@@ -180,8 +174,9 @@ The bridge reads available models from Codex app-server `model/list` and passes 
 - Turn history is persisted locally in the browser with IndexedDB.
 - History is scoped to the current browser profile and origin.
 - Reloading the page does not recreate old live widgets, but saved turns remain available from the launcher menu.
-- The history dialog shows prompt, selection, model, status, reasoning summary, command output, diff, approvals, and stored run metadata.
+- The history dialog shows prompt, selection, model, status, reasoning summary, command output, diff, and stored run metadata.
 - History can be cleared manually from the history dialog.
+- While the history dialog is open, page scrolling is locked behind it.
 - If IndexedDB is unavailable, the live widget flow still works and the history view shows a non-blocking unavailable state.
 
 ## Widget persistence and refresh restore
