@@ -35,9 +35,9 @@ jobs:
 
       - name: Verify repo
         run: |
+          npm run build
           npm run check
           npm test
-          npm run build
 
       - name: Create release PR or publish to npm
         uses: changesets/action@v1
