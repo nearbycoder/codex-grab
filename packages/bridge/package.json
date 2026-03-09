@@ -1,6 +1,6 @@
 {
   "name": "@codex-grab/bridge",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Localhost bridge and CLI for codex-grab Codex app-server sessions.",
   "license": "MIT",
   "type": "module",
@@ -45,7 +45,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@codex-grab/core": "0.0.1",
+    "@codex-grab/core": "0.1.0",
     "ws": "^8.18.3"
   }
 }
