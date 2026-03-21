@@ -49,6 +49,7 @@ interface OverlayThemeStyles {
   softText: CSSProperties;
   prompt(focused: boolean): CSSProperties;
   statusDotColor: string;
+  workingDotColor: string;
   successDotColor: string;
 }
 
@@ -131,6 +132,11 @@ const compactWidgetStyle: CSSProperties = {
   cursor: "grab",
   touchAction: "none"
 };
+
+const COMPACT_WIDGET_PADDING_Y = 12;
+const PANEL_WIDGET_PADDING_Y = 14;
+const DRAG_ACTIVATION_DISTANCE = 6;
+const COMPACT_DRAG_CLICK_GUARD_MS = 250;
 
 const sectionStyle: CSSProperties = {
   marginTop: 12,
@@ -847,6 +853,7 @@ const getThemeStyles = (theme: OverlayTheme): OverlayThemeStyles => {
         boxShadow: focused ? "0 0 0 3px rgba(255,255,255,0.08)" : "none"
       }),
       statusDotColor: "#fafafa",
+      workingDotColor: "#60a5fa",
       successDotColor: "#34d399"
     };
   }
@@ -974,6 +981,7 @@ const getThemeStyles = (theme: OverlayTheme): OverlayThemeStyles => {
       boxShadow: focused ? "0 0 0 3px rgba(15, 23, 42, 0.08)" : "none"
     }),
     statusDotColor: "#0f172a",
+    workingDotColor: "#2563eb",
     successDotColor: "#16a34a"
   };
 };
@@ -1560,6 +1568,12 @@ const WidgetPanel = ({
   const thinkingLabel = widget.selectedEffort ?? "default";
   const collapsedStatusText = getCollapsedStatusText(widget);
   const canSubmit = shouldAllowSubmit(widget);
+  const compactDotColor =
+    widget.turnStatus === "running"
+      ? themeStyles.workingDotColor
+      : widget.turnStatus === "completed"
+        ? themeStyles.successDotColor
+        : themeStyles.statusDotColor;
   const expandedScrollRegionStyle: CSSProperties = {
     ...widgetScrollRegionStyle,
     maxHeight: "calc(min(560px, calc(100vh - 32px)) - 176px)"
@@ -1579,12 +1593,14 @@ const WidgetPanel = ({
   const compactPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const expandedPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldAnimateContentRef = useRef(false);
+  const lastCompactDragAtRef = useRef(0);
   const dragStateRef = useRef<{
     mode: "panel" | "compact";
     pointerId: number;
     startX: number;
     startY: number;
     origin: GrabWidget["anchor"];
+    hasMoved: boolean;
     moveHandler: (event: PointerEvent) => void;
     upHandler: (event: PointerEvent) => void;
   } | null>(null);
@@ -1620,13 +1636,21 @@ const WidgetPanel = ({
         return;
       }
 
+      const deltaX = moveEvent.clientX - dragState.startX;
+      const deltaY = moveEvent.clientY - dragState.startY;
+      if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) < DRAG_ACTIVATION_DISTANCE) {
+        return;
+      }
+
+      dragState.hasMoved = true;
+
       moveEvent.preventDefault();
       updateAnchor(
         widget.id,
         clampAnchor(
           {
-            top: dragState.origin.top + (moveEvent.clientY - dragState.startY),
-            left: dragState.origin.left + (moveEvent.clientX - dragState.startX)
+            top: dragState.origin.top + deltaY,
+            left: dragState.origin.left + deltaX
           },
           dragState.mode,
         ),
@@ -1639,6 +1663,10 @@ const WidgetPanel = ({
         return;
       }
 
+      if (dragState.mode === "compact" && dragState.hasMoved) {
+        lastCompactDragAtRef.current = Date.now();
+      }
+
       finishDrag();
     };
 
@@ -1648,6 +1676,7 @@ const WidgetPanel = ({
       startX: event.clientX,
       startY: event.clientY,
       origin: widget.anchor,
+      hasMoved: false,
       moveHandler,
       upHandler
     };
@@ -1761,6 +1790,10 @@ const WidgetPanel = ({
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ type: "spring", stiffness: 320, damping: 28 }}
         onClick={() => {
+          if (Date.now() - lastCompactDragAtRef.current < COMPACT_DRAG_CLICK_GUARD_MS) {
+            return;
+          }
+
           onFocus(widget.id);
           setWidgetCollapsed(widget.id, false);
         }}
@@ -1775,16 +1808,29 @@ const WidgetPanel = ({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
           <motion.div
-            animate={{ scale: [1, 1.1, 1], opacity: [0.8, 1, 0.8] }}
-            transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+            animate={
+              widget.turnStatus === "running"
+                ? {
+                    scale: [1, 1.18, 1],
+                    opacity: [0.7, 1, 0.7],
+                    boxShadow: [
+                      `0 0 0 0 ${compactDotColor}55`,
+                      `0 0 0 8px ${compactDotColor}00`,
+                      `0 0 0 0 ${compactDotColor}00`
+                    ]
+                  }
+                : { scale: 1, opacity: 1, boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
+            }
+            transition={
+              widget.turnStatus === "running"
+                ? { repeat: Infinity, duration: 1.25, ease: "easeInOut" }
+                : { duration: 0.18, ease: "easeOut" }
+            }
             style={{
               width: 10,
               height: 10,
               borderRadius: 999,
-              background:
-                widget.turnStatus === "completed"
-                  ? themeStyles.successDotColor
-                  : themeStyles.statusDotColor,
+              background: compactDotColor,
               flexShrink: 0
             }}
           />
@@ -1822,10 +1868,28 @@ const WidgetPanel = ({
 
   return (
     <motion.aside
-      initial={{ opacity: 0, scale: 0.92, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, y: 8 }}
-      transition={{ type: "spring", stiffness: 320, damping: 28 }}
+      initial={{
+        opacity: 1,
+        y: 0,
+        width: COMPACT_WIDGET_WIDTH,
+        paddingTop: COMPACT_WIDGET_PADDING_Y,
+        paddingBottom: COMPACT_WIDGET_PADDING_Y
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        width: WIDGET_WIDTH,
+        paddingTop: PANEL_WIDGET_PADDING_Y,
+        paddingBottom: PANEL_WIDGET_PADDING_Y
+      }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{
+        width: { type: "spring", stiffness: 320, damping: 28 },
+        paddingTop: { type: "spring", stiffness: 320, damping: 30 },
+        paddingBottom: { type: "spring", stiffness: 320, damping: 30 },
+        opacity: { duration: 0.14, ease: "easeOut" },
+        y: { duration: 0.18, ease: "easeOut" }
+      }}
       onPointerDown={() => onFocus(widget.id)}
       style={{
         ...widgetStyle,
@@ -1836,155 +1900,164 @@ const WidgetPanel = ({
       data-codex-grab-overlay="true"
       data-widget-id={widget.id}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <div
-          style={{ ...wrapTextStyle, flex: 1, cursor: "grab", touchAction: "none" }}
-          onPointerDown={(event) => startDragging(event, "panel")}
-        >
-          <strong>{selectionSnapshot.componentName ?? "Unknown component"}</strong>
-          <div style={{ ...themeStyles.mutedText, marginTop: 4 }}>
-            {widget.connectionStatus === "connected"
-              ? widget.turnStatus === "running"
-                ? statusCopy
-                : "Ready"
-              : widget.connectionStatus === "connecting"
-                ? "Connecting…"
-                : widget.connectionError ?? "Connection error"}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {widget.connectionStatus === "error" ? (
-            <button
-              type="button"
-              style={{
-                ...iconButtonStyle,
-                ...headerControlButtonStyle,
-                ...themeStyles.iconButton,
-                width: "auto",
-                padding: "0 12px"
-              }}
-              onClick={() => retryConnection(widget.id)}
-              aria-label="Retry connection"
-              title="Retry connection"
-            >
-              Retry
-            </button>
-          ) : null}
-          {!expanded && widget.turnStatus !== "idle" ? (
-            <button
-              type="button"
-              style={{
-                ...iconButtonStyle,
-                ...themeStyles.iconButton,
-                width: 30,
-                height: 30
-              }}
-              onClick={() => toggleWidget(widget.id)}
-              aria-label="Expand widget"
-              title="Expand"
-            >
-              <ExpandIcon />
-            </button>
-          ) : null}
-          {!expanded && widget.turnStatus === "running" ? (
-            <button
-              type="button"
-              style={{
-                ...iconButtonStyle,
-                ...themeStyles.iconButton,
-                width: 30,
-                height: 30
-              }}
-              onClick={() => interrupt(widget.id)}
-              aria-label="Interrupt turn"
-              title="Interrupt"
-            >
-              <StopIcon />
-            </button>
-          ) : null}
-          {expanded ? (
-            <button
-              type="button"
-              data-header-menu-trigger="true"
-              style={{
-                ...iconButtonStyle,
-                ...themeStyles.iconButton,
-                width: 30,
-                height: 30
-              }}
-              onClick={() => setMenuOpen((current) => !current)}
-              aria-label="More widget options"
-              title="More"
-            >
-              <EllipsisIcon />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            style={{
-              ...iconButtonStyle,
-              ...themeStyles.iconButton,
-              width: 30,
-              height: 30
-            }}
-            onClick={() => removeWidget(widget.id)}
-            aria-label="Close widget"
-            title="Close"
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{
+          opacity: { duration: 0.18, ease: "easeOut", delay: 0.08 },
+          y: { duration: 0.22, ease: "easeOut", delay: 0.08 }
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <div
+            style={{ ...wrapTextStyle, flex: 1, cursor: "grab", touchAction: "none" }}
+            onPointerDown={(event) => startDragging(event, "panel")}
           >
-            <CloseIcon />
-          </button>
-        </div>
-      </div>
-
-      {expanded && menuOpen ? (
-        <div
-          ref={menuRef}
-          style={{
-            ...headerMenuStyle,
-            ...themeStyles.widget,
-            boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)"
-          }}
-          data-codex-grab-overlay="true"
-        >
-          <div style={{ display: "grid", gap: 8 }}>
-            {showHeaderExpand ? (
+            <strong>{selectionSnapshot.componentName ?? "Unknown component"}</strong>
+            <div style={{ ...themeStyles.mutedText, marginTop: 4 }}>
+              {widget.connectionStatus === "connected"
+                ? widget.turnStatus === "running"
+                  ? statusCopy
+                  : "Ready"
+                : widget.connectionStatus === "connecting"
+                  ? "Connecting…"
+                  : widget.connectionError ?? "Connection error"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {widget.connectionStatus === "error" ? (
               <button
                 type="button"
                 style={{
-                  ...secondaryButtonStyle,
-                  ...themeStyles.secondaryButton,
+                  ...iconButtonStyle,
                   ...headerControlButtonStyle,
-                  width: "100%",
-                  marginBottom: 8
+                  ...themeStyles.iconButton,
+                  width: "auto",
+                  padding: "0 12px"
                 }}
-                onClick={() => {
-                  toggleWidget(widget.id);
-                  setMenuOpen(false);
-                }}
+                onClick={() => retryConnection(widget.id)}
+                aria-label="Retry connection"
+                title="Retry connection"
               >
-                {expanded ? "Collapse" : "Expand"}
+                Retry
               </button>
             ) : null}
+            {!expanded && widget.turnStatus !== "idle" ? (
+              <button
+                type="button"
+                style={{
+                  ...iconButtonStyle,
+                  ...themeStyles.iconButton,
+                  width: 30,
+                  height: 30
+                }}
+                onClick={() => toggleWidget(widget.id)}
+                aria-label="Expand widget"
+                title="Expand"
+              >
+                <ExpandIcon />
+              </button>
+            ) : null}
+            {!expanded && widget.turnStatus === "running" ? (
+              <button
+                type="button"
+                style={{
+                  ...iconButtonStyle,
+                  ...themeStyles.iconButton,
+                  width: 30,
+                  height: 30
+                }}
+                onClick={() => interrupt(widget.id)}
+                aria-label="Interrupt turn"
+                title="Interrupt"
+              >
+                <StopIcon />
+              </button>
+            ) : null}
+            {expanded ? (
+              <button
+                type="button"
+                data-header-menu-trigger="true"
+                style={{
+                  ...iconButtonStyle,
+                  ...themeStyles.iconButton,
+                  width: 30,
+                  height: 30
+                }}
+                onClick={() => setMenuOpen((current) => !current)}
+                aria-label="More widget options"
+                title="More"
+              >
+                <EllipsisIcon />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              style={{
+                ...iconButtonStyle,
+                ...themeStyles.iconButton,
+                width: 30,
+                height: 30
+              }}
+              onClick={() => removeWidget(widget.id)}
+              aria-label="Close widget"
+              title="Close"
+            >
+              <CloseIcon />
+            </button>
           </div>
         </div>
-      ) : null}
 
-      <AnimatePresence initial={false}>
-        {expanded ? (
-          <motion.div
-            key="expanded"
-            style={contentSlideStyle}
-            initial={
-              shouldAnimateContentRef.current ? { height: 0, opacity: 0, y: -10 } : false
-            }
-            animate={{ height: "auto", opacity: 1, y: 0 }}
-            exit={{ height: 0, opacity: 0, y: -8 }}
-            transition={{
-              height: { type: "spring", stiffness: 260, damping: 28 },
-              opacity: { duration: 0.18, ease: "easeOut" },
-              y: { duration: 0.24, ease: "easeOut" }
+        {expanded && menuOpen ? (
+          <div
+            ref={menuRef}
+            style={{
+              ...headerMenuStyle,
+              ...themeStyles.widget,
+              boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)"
             }}
+            data-codex-grab-overlay="true"
           >
+            <div style={{ display: "grid", gap: 8 }}>
+              {showHeaderExpand ? (
+                <button
+                  type="button"
+                  style={{
+                    ...secondaryButtonStyle,
+                    ...themeStyles.secondaryButton,
+                    ...headerControlButtonStyle,
+                    width: "100%",
+                    marginBottom: 8
+                  }}
+                  onClick={() => {
+                    toggleWidget(widget.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {expanded ? "Collapse" : "Expand"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <AnimatePresence initial={false}>
+          {expanded ? (
+            <motion.div
+              key="expanded"
+              style={contentSlideStyle}
+              initial={
+                shouldAnimateContentRef.current ? { height: 0, opacity: 0, y: -10 } : false
+              }
+              animate={{ height: "auto", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: -8 }}
+              transition={{
+                height: { type: "spring", stiffness: 260, damping: 28 },
+                opacity: { duration: 0.18, ease: "easeOut" },
+                y: { duration: 0.24, ease: "easeOut" }
+              }}
+            >
         <div style={expandedScrollRegionStyle}>
           <section style={{ ...sectionStyle, ...themeStyles.section }}>
             <div style={{ ...themeStyles.mutedText, marginBottom: 8 }}>Selection</div>
@@ -2254,22 +2327,22 @@ const WidgetPanel = ({
             </section>
           ) : null}
         </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="collapsed"
-            style={contentSlideStyle}
-            initial={
-              shouldAnimateContentRef.current ? { height: 0, opacity: 0, y: -8 } : false
-            }
-            animate={{ height: "auto", opacity: 1, y: 0 }}
-            exit={{ height: 0, opacity: 0, y: -6 }}
-            transition={{
-              height: { type: "spring", stiffness: 300, damping: 30 },
-              opacity: { duration: 0.16, ease: "easeOut" },
-              y: { duration: 0.2, ease: "easeOut" }
-            }}
-          >
+            </motion.div>
+          ) : (
+            <motion.div
+              key="collapsed"
+              style={contentSlideStyle}
+              initial={
+                shouldAnimateContentRef.current ? { height: 0, opacity: 0, y: -8 } : false
+              }
+              animate={{ height: "auto", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: -6 }}
+              transition={{
+                height: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.16, ease: "easeOut" },
+                y: { duration: 0.2, ease: "easeOut" }
+              }}
+            >
           {widget.turnStatus === "idle" ? (
             <section style={{ ...sectionStyle, ...themeStyles.section }}>
               <textarea
@@ -2612,9 +2685,10 @@ const WidgetPanel = ({
                 document.body,
               )
             : null}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </motion.aside>
   );
 };

@@ -51,11 +51,26 @@ describe("CodexAgentProvider notification mapping", () => {
           data: [
             {
               id: "model-1",
-              model: "gpt-5.3-codex",
-              displayName: "gpt-5.3-codex",
-              description: "Latest frontier agentic coding model.",
+              model: "gpt-5.2-codex",
+              displayName: "gpt-5.2-codex",
+              description: "Blocked model.",
               hidden: false,
               isDefault: true,
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: [
+                {
+                  reasoningEffort: "medium",
+                  description: "Balanced"
+                }
+              ]
+            },
+            {
+              id: "model-2",
+              model: "model-alpha",
+              displayName: "model-alpha",
+              description: "Allowed model.",
+              hidden: false,
+              isDefault: false,
               defaultReasoningEffort: "medium",
               supportedReasoningEfforts: [
                 {
@@ -80,12 +95,12 @@ describe("CodexAgentProvider notification mapping", () => {
 
     await expect(provider.listModels()).resolves.toEqual([
       {
-        id: "model-1",
-        model: "gpt-5.3-codex",
-        displayName: "gpt-5.3-codex",
-        description: "Latest frontier agentic coding model.",
+        id: "model-2",
+        model: "model-alpha",
+        displayName: "model-alpha",
+        description: "Allowed model.",
         hidden: false,
-        isDefault: true,
+        isDefault: false,
         defaultReasoningEffort: "medium",
         supportedReasoningEfforts: [
           {
@@ -107,7 +122,7 @@ describe("CodexAgentProvider notification mapping", () => {
       fiberId: 1,
       isReactComponent: true
     }, {
-      model: "gpt-5.3-codex",
+      model: "model-alpha",
       effort: "high"
     });
 
@@ -117,7 +132,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       sandbox: "workspace-write",
-      model: "gpt-5.3-codex"
+      model: "model-alpha"
     });
     expect(mockClient.request).toHaveBeenNthCalledWith(3, "turn/start", {
       threadId: "thread-1",
@@ -125,7 +140,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "auto",
-      model: "gpt-5.3-codex",
+      model: "model-alpha",
       effort: "high"
     });
 
@@ -263,7 +278,7 @@ describe("CodexAgentProvider notification mapping", () => {
     });
   });
 
-  it("starts mini models with detailed summaries immediately", async () => {
+  it("starts codex-max turns with auto summaries", async () => {
     const mockClient = {
       getMetadata: () => ({ version: "0.108.0", accountEmail: "test@example.com" }),
       onNotification() {
@@ -297,7 +312,7 @@ describe("CodexAgentProvider notification mapping", () => {
         isReactComponent: true
       },
       {
-        model: "gpt-5.1-codex-mini",
+        model: "model-beta",
         effort: "medium"
       },
     );
@@ -308,7 +323,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "auto",
-      model: "gpt-5.1-codex-mini",
+      model: "model-beta",
       effort: "medium"
     });
   });
@@ -355,7 +370,7 @@ describe("CodexAgentProvider notification mapping", () => {
         isReactComponent: true
       },
       {
-        model: "gpt-5.3-codex",
+        model: "model-alpha",
         effort: "medium"
       },
     );
@@ -369,7 +384,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "auto",
-      model: "gpt-5.3-codex",
+      model: "model-alpha",
       effort: "medium"
     });
   });
@@ -393,7 +408,7 @@ describe("CodexAgentProvider notification mapping", () => {
                 type: "invalid_request_error",
                 code: "unsupported_value",
                 message:
-                  "'auto' is not supported with the 'gpt-5.1-codex-lite' model. Supported values are 'detailed', 'concise'.",
+                  "'auto' is not supported with the 'model-beta' model. Supported values are 'detailed', 'concise'.",
                 param: ["reasoning.summary"]
               },
               status: 400
@@ -422,7 +437,7 @@ describe("CodexAgentProvider notification mapping", () => {
         isReactComponent: true
       },
       {
-        model: "gpt-5.1-codex-lite",
+        model: "model-beta",
         effort: "medium"
       },
     );
@@ -433,7 +448,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       sandbox: "workspace-write",
-      model: "gpt-5.1-codex-lite"
+      model: "model-beta"
     });
     expect(mockClient.request).toHaveBeenNthCalledWith(2, "turn/start", {
       threadId: "thread-1",
@@ -441,7 +456,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "auto",
-      model: "gpt-5.1-codex-lite",
+      model: "model-beta",
       effort: "medium"
     });
     expect(mockClient.request).toHaveBeenNthCalledWith(3, "turn/start", {
@@ -450,7 +465,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "detailed",
-      model: "gpt-5.1-codex-lite",
+      model: "model-beta",
       effort: "medium"
     });
   });
@@ -474,7 +489,7 @@ describe("CodexAgentProvider notification mapping", () => {
                 type: "invalid_request_error",
                 code: "unsupported_value",
                 message:
-                  "Unsupported value: 'auto' is not supported with the 'gpt-5.1-codex-lite' model. Supported values are: 'detailed'.",
+                  "Unsupported value: 'auto' is not supported with the 'model-beta' model. Supported values are: 'detailed'.",
                 param: "reasoning.summary"
               },
               status: 400
@@ -503,7 +518,7 @@ describe("CodexAgentProvider notification mapping", () => {
         isReactComponent: true
       },
       {
-        model: "gpt-5.1-codex-lite",
+        model: "model-beta",
         effort: "medium"
       },
     );
@@ -514,7 +529,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/repo",
       approvalPolicy: "on-request",
       summary: "detailed",
-      model: "gpt-5.1-codex-lite",
+      model: "model-beta",
       effort: "medium"
     });
   });
@@ -692,7 +707,7 @@ describe("CodexAgentProvider notification mapping", () => {
     );
 
     await provider.submitPrompt("session-1", "Change it", selection, {
-      model: "gpt-5.3-codex",
+      model: "model-alpha",
       effort: "medium"
     });
 
@@ -721,7 +736,7 @@ describe("CodexAgentProvider notification mapping", () => {
       cwd: "/Users/nearby/Sites/codex-grab",
       approvalPolicy: "on-request",
       summary: "auto",
-      model: "gpt-5.3-codex",
+      model: "model-alpha",
       effort: "medium"
     });
     expect(events).toContainEqual({

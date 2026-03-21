@@ -33,7 +33,7 @@ const createRecord = (id: string, overrides: Partial<GrabTurnHistoryRecord> = {}
     isReactComponent: true
   },
   prompt: "Change it",
-  model: "gpt-5.3-codex",
+  model: "model-alpha",
   effort: "medium",
   status: "running",
   reasoningSummary: "",
@@ -62,7 +62,7 @@ const createWidgetRecord = (
   includeScreenshot: false,
   isCapturingScreenshot: false,
   screenshotError: null,
-  selectedModel: "gpt-5.3-codex",
+  selectedModel: "model-alpha",
   selectedEffort: "medium",
   availableModels: [],
   connectionStatus: "connected",

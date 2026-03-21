@@ -53,6 +53,12 @@ interface ServerRequestRecord {
 type EventSink = (sessionId: string, event: BridgeEvent) => void;
 type TurnSummaryMode = "auto" | "concise" | "detailed" | "none";
 type PatchReverter = (cwd: string, diff: string) => Promise<void>;
+const BLOCKED_MODEL_IDS = new Set([
+  "gpt-5.2-codex",
+  "gpt-5.2",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini"
+]);
 
 const buildRevertPrompt = (diff: string): string =>
   [
@@ -307,19 +313,21 @@ export class CodexAgentProvider implements AgentProvider {
             }>;
           }).data;
 
-          return (data ?? []).map((model) => ({
-            id: model.id,
-            model: model.model,
-            displayName: model.displayName,
-            description: model.description,
-            hidden: model.hidden,
-            isDefault: model.isDefault,
-            defaultReasoningEffort: model.defaultReasoningEffort,
-            supportedReasoningEfforts: model.supportedReasoningEfforts.map((effort) => ({
-              effort: effort.reasoningEffort,
-              description: effort.description
-            }))
-          }));
+          return (data ?? [])
+            .filter((model) => !BLOCKED_MODEL_IDS.has(model.model))
+            .map((model) => ({
+              id: model.id,
+              model: model.model,
+              displayName: model.displayName,
+              description: model.description,
+              hidden: model.hidden,
+              isDefault: model.isDefault,
+              defaultReasoningEffort: model.defaultReasoningEffort,
+              supportedReasoningEfforts: model.supportedReasoningEfforts.map((effort) => ({
+                effort: effort.reasoningEffort,
+                description: effort.description
+              }))
+            }));
         })
         .catch((error) => {
           this.modelsPromise = null;

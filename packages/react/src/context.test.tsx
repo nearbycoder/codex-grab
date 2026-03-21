@@ -142,9 +142,9 @@ class MockSocket {
             models: [
               {
                 id: "model-1",
-                model: "gpt-5.3-codex",
-                displayName: "gpt-5.3-codex",
-                description: "Latest frontier agentic coding model.",
+                model: "model-alpha",
+                displayName: "model-alpha",
+                description: "Primary allowed model.",
                 hidden: false,
                 isDefault: true,
                 defaultReasoningEffort: "medium",
@@ -160,30 +160,42 @@ class MockSocket {
                   {
                     effort: "high",
                     description: "Deeper reasoning for harder tasks"
+                  },
+                  {
+                    effort: "xhigh",
+                    description: "Maximum reasoning depth for the hardest tasks"
                   }
                 ]
               },
               {
                 id: "model-2",
-                model: "gpt-5.1-codex",
-                displayName: "gpt-5.1-codex",
-                description: "Faster coding model for lighter changes.",
+                model: "model-beta",
+                displayName: "model-beta",
+                description: "Secondary allowed model.",
                 hidden: false,
                 isDefault: false,
-                defaultReasoningEffort: "low",
+                defaultReasoningEffort: "none",
                 supportedReasoningEfforts: [
                   {
-                    effort: "low",
-                    description: "Fast responses with lighter reasoning"
+                    effort: "none",
+                    description: "Lowest-latency responses with no extra reasoning"
                   },
                   {
                     effort: "medium",
                     description: "Balanced speed and reasoning depth"
+                  },
+                  {
+                    effort: "high",
+                    description: "Deeper reasoning for harder tasks"
+                  },
+                  {
+                    effort: "xhigh",
+                    description: "Maximum reasoning depth for the hardest tasks"
                   }
                 ]
               }
             ],
-            defaultModel: "gpt-5.3-codex",
+            defaultModel: "model-alpha",
             defaultEffort: "medium"
           })
         }),
@@ -359,7 +371,7 @@ describe("CodexGrabProvider", () => {
       expect(
         screen
           .getAllByRole("button", { name: "Choose model" })
-          .some((button) => button.textContent?.includes("gpt-5.3-codex")),
+          .some((button) => button.textContent?.includes("model-alpha")),
       ).toBe(true);
       expect(
         screen
@@ -480,7 +492,7 @@ describe("CodexGrabProvider", () => {
         isReactComponent: true
       },
       preferences: {
-        model: "gpt-5.3-codex",
+        model: "model-alpha",
         effort: "medium"
       }
     });
@@ -548,16 +560,16 @@ describe("CodexGrabProvider", () => {
 
     const featureCardScope = within(featureCardPanel as HTMLElement);
     await user.click(featureCardScope.getByRole("button", { name: "Choose model" }));
-    await user.click(await screen.findByRole("option", { name: /gpt-5\.1-codex/i }));
+    await user.click(await screen.findByRole("option", { name: /model-beta/i }));
     await user.click(featureCardScope.getByRole("button", { name: "Choose thinking" }));
-    await user.click(await screen.findByRole("option", { name: /low/i }));
+    await user.click(await screen.findByRole("option", { name: /xhigh/i }));
     await waitFor(() => {
       expect(featureCardScope.getByRole("button", { name: "Choose model" }).textContent).toContain(
-        "gpt-5.1-codex",
+        "model-beta",
       );
       expect(
         featureCardScope.getByRole("button", { name: "Choose thinking" }).textContent,
-      ).toContain("low");
+      ).toContain("xhigh");
     });
 
     const featurePrompt = featureCardScope.getByPlaceholderText(
@@ -580,14 +592,14 @@ describe("CodexGrabProvider", () => {
       type: "select.submitPrompt",
       prompt: "Change this to Welcome!",
       preferences: {
-        model: "gpt-5.1-codex",
-        effort: "low"
+        model: "model-beta",
+        effort: "xhigh"
       }
     });
   });
 
   it("reuses the stored model preference for new widgets", async () => {
-    window.localStorage.setItem("codex-grab-selected-model", "gpt-5.1-codex");
+    window.localStorage.setItem("codex-grab-selected-model", "model-beta");
     const user = userEvent.setup();
     render(
       <CodexGrabProvider bridgeUrl="ws://127.0.0.1:4321" token="secret">
@@ -609,11 +621,11 @@ describe("CodexGrabProvider", () => {
 
     const storedCardScope = within(storedCardPanel as HTMLElement);
     expect(storedCardScope.getByRole("button", { name: "Choose model" }).textContent).toContain(
-      "gpt-5.1-codex",
+      "model-beta",
     );
     expect(
       storedCardScope.getByRole("button", { name: "Choose thinking" }).textContent,
-    ).toContain("low");
+    ).toContain("none");
 
     const storedPrompt = storedCardScope.getByPlaceholderText(
       "Describe the change you want Codex to make.",
@@ -635,8 +647,8 @@ describe("CodexGrabProvider", () => {
       type: "select.submitPrompt",
       prompt: "Use the stored model",
       preferences: {
-        model: "gpt-5.1-codex",
-        effort: "low"
+        model: "model-beta",
+        effort: "none"
       }
     });
   });
