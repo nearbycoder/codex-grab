@@ -41,6 +41,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "bippy": "^0.5.30"
+    "bippy": "^0.5.42"
   }
 }
